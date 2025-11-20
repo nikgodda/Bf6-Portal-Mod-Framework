@@ -1,112 +1,118 @@
-# 🚀 BF6 Portal Mod Framework
-A build and tooling system for creating Battlefield 6 Portal mods using TypeScript
+# BF6 Portal Mod Framework
 
-This framework provides:
+A lightweight development framework that provides build tools, merge tooling, SDK updating, and a watcher for creating Battlefield 6 Portal Mods.
 
-- ⚙️ Automatic merge system that produces a single __MERGED.ts
-- 📦 Portal SDK and modlib integration
-- 🧰 CLI commands for building and updating SDK
-- 📁 Recommended project structure
-- 🛠 Zero configuration setup for BF6 mod development
+This package contains:
 
----
+- `bf6mod` CLI tool  
+- automatic merge script for generating `__MERGED.ts`  
+- file watcher for live rebuilds  
+- SDK update script (downloads official mod & modlib typings into your project)  
+- does **not** include any SDK files itself  
 
-## 📥 Installation
+It is designed to be used inside BF6 mod projects, such as the official template:
 
-Install as a development dependency:
-
-```bash
-npm install --save-dev bf6-portal-mod-framework
-```
-
-Update to latest version:
-
-```bash
-npm install bf6-portal-mod-framework@latest
-```
+https://github.com/nikgodda/bf6-portal-mod-template
 
 ---
 
-## 🧵 CLI Usage
+# 🚀 Installation
 
-The framework provides a command line tool called bf6mod
+Inside your mod project:
 
-### 🔨 Build the mod
+```bash
+npm install bf6-portal-mod-framework --save-dev
+```
+
+---
+
+# 📦 CLI Commands
+
+The framework exposes a CLI named `bf6mod`.
+
+### Build merged output
 
 ```bash
 bf6mod build
 ```
 
-This generates:
+Generates:
 
 ```
 __MERGED.ts
 ```
 
-Paste its contents into the BF6 Portal Rules Editor
+Paste this into the BF6 Portal Mod Editor.
 
-### 🔄 Update the Portal SDK
+---
+
+### Watch mode (auto-merge on save)
+
+```bash
+bf6mod watch
+```
+
+Watches your project’s `src/` folder and rebuilds `__MERGED.ts` whenever files are modified.
+
+---
+
+### Update SDK typings
 
 ```bash
 bf6mod update-sdk
 ```
 
-This downloads the official Portal SDK typings into:
+Downloads the latest official BF6 Portal SDK files into your project:
 
 ```
-SDK/mod/
-SDK/modlib/
+SDK/mod
+SDK/modlib
 ```
+
+This is safe to run anytime SDK typings change.
 
 ---
 
-## 📁 Recommended Project Structure
+# 🧱 Project Requirements
+
+Your mod project should have:
 
 ```
-src/
-  main.ts
-  GameModes/
-  Core/
-
 SDK/
   mod/
   modlib/
 
-__MERGED.ts
+src/
+  main.ts
+  ...
 ```
 
----
+The framework does **not** include SDK files — they must be stored in your project.
 
-## 🧩 Merge System
-
-The build process:
-
-1. Reads your entire TypeScript project
-2. Resolves and inlines all imports
-3. Removes export keywords
-4. Injects required modlib import
-5. Adds file headers
-6. Outputs a single __MERGED.ts file
-
----
-
-## 🛠 Integration Example
+Use:
 
 ```
 npm run update-sdk
-npm run build
 ```
 
----
-
-## 📌 Notes
-
-- The framework does not emit JavaScript files into the template
-- All output is handled by the bf6mod CLI
-- Do not edit __MERGED.ts manually
+to refresh them.
 
 ---
 
-## 📄 License
+# 🛠 Merge Behavior
+
+The merge tool:
+
+- walks all `.ts` files under your project's `src/` directory  
+- resolves imports in order  
+- combines them into a single `__MERGED.ts` file  
+- removes TypeScript exports  
+- removes import statements  
+- prepends a single `import * as modlib from "modlib"`  
+- flattens your entire TypeScript project into a format readable by Portal
+
+---
+
+# 📜 License
 
 MIT

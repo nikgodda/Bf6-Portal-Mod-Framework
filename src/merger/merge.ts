@@ -9,9 +9,6 @@ const __dirname = path.dirname(__filename)
 const visited = new Set<string>()
 const ordered: string[] = []
 
-// ----------------------------------------------
-// Recursively resolve file imports
-// ----------------------------------------------
 function resolveFile(filePath: string) {
     if (visited.has(filePath)) return
     visited.add(filePath)
@@ -54,9 +51,6 @@ function resolveImport(baseFile: string, reqPath: string) {
     return null
 }
 
-// ----------------------------------------------
-// Main merge function
-// ----------------------------------------------
 export default function merge(entryFileInput?: string) {
     const entryFile =
         entryFileInput ?? path.resolve(process.cwd(), 'src/main.ts')
@@ -75,19 +69,16 @@ export default function merge(entryFileInput?: string) {
         // Remove all import statements
         code = code.replace(/^\s*import\s+.*from\s+['"].+['"]\s*;?\s*$/gm, '')
 
-        // Remove `export` but preserve class/const/let/var definitions
+        // Remove `export` but keep definitions
         code = code.replace(
             /^\s*export\s+(abstract\s+)?(?=class|interface|type|enum|const|let|var)/gm,
             '$1'
         )
 
-        // Remove comments but KEEP the newline
-        code = code.replace(/\/\/.*$/gm, '')
-
-        // Normalize EOL to LF
+        // Normalize EOLs
         code = code.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
 
-        // Trim trailing whitespace on lines
+        // Trim trailing whitespace
         code = code.replace(/[ \t]+$/gm, '')
 
         output +=

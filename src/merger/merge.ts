@@ -2,29 +2,26 @@ import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 
-// Resolve __dirname
+// Fix __dirname in ES module
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
 const visited = new Set<string>()
 const ordered: string[] = []
 
-// ----------------------------------------------
-// Resolve imports recursively
-// ----------------------------------------------
 function resolveFile(filePath: string) {
     if (visited.has(filePath)) return
     visited.add(filePath)
 
     if (!fs.existsSync(filePath)) {
-        console.error('File not found ' + filePath)
+        console.error('File not found: ' + filePath)
         process.exit(1)
     }
 
     const code = fs.readFileSync(filePath, 'utf8')
-
     const importRegex =
-        /import\s+(?:[\s\S]*?)?from\s+["'](\.\/.*?|\.{2}\/.*?)["']/g
+        /import\s+(?:[\s\S]*?)?from\s+["'](\.\/.*?|\.{2}\/.*?)["'];?/g
+
     let match
     while ((match = importRegex.exec(code))) {
         const importPath = match[1]
@@ -53,59 +50,48 @@ function resolveImport(baseFile: string, reqPath: string) {
     return null
 }
 
-// ----------------------------------------------
-// Format each file block safely
-// ----------------------------------------------
-function sanitizeCode(code: string) {
-    let result = code
+export default function merge(entryFileInput?: string) {
+    const entryFile =
+        entryFileInput ?? path.resolve(process.cwd(), 'src/main.ts')
 
-    // Remove all import lines
-    result = result.replace(/^\s*import\s+.*?["'].*?["']\s*$/gm, '')
-
-    // Remove export but keep class/type
-    result = result.replace(
-        /^\s*export\s+(abstract\s+)?(?=class|interface|type|enum|const|let|var)/gm,
-        '$1'
-    )
-
-    // Ensure comments end with real newline
-    result = result.replace(/\/\/[^\n]*$/gm, (m) => m + '\n')
-
-    // Normalize EOL to LF
-    result = result.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
-
-    // Trim trailing whitespace
-    result = result.replace(/[ \t]+$/gm, '')
-
-    return result.trim()
-}
-
-// ----------------------------------------------
-// Main merge logic
-// ----------------------------------------------
-export default function merge() {
-    const entryFile = path.resolve(process.cwd(), 'src/main.ts')
-
-    resolveFile(entryFile)
+    const absEntry = path.resolve(entryFile)
+    resolveFile(absEntry)
 
     let output = ''
 
+    // Add modlib import at the very top
     output += "import * as modlib from 'modlib'\n\n"
 
     for (const file of ordered) {
-        const code = sanitizeCode(fs.readFileSync(file, 'utf8'))
+        let code = fs.readFileSync(file, 'utf8')
+
+        // Remove all import statements
+        code = code.replace(/^\s*import\s+.*from\s+['"].+['"]\s*;?\s*$/gm, '')
+
+        // Remove 'export' keywords
+        code = code.replace(
+            /^\s*export\s+(abstract\s+)?(?=class|interface|type|enum|const|let|var)/gm,
+            '$1'
+        )
+
+        // Remove comments (except our FILE marker)
+        code = code.replace(/\/\/[^\n]*/g, '')
+
+        // Normalize EOL
+        code = code.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+
+        // Remove excessive blank lines
+        code = code.replace(/\n{3,}/g, '\n\n')
 
         output +=
             '// -------- FILE: ' +
             path.relative(process.cwd(), file) +
-            ' --------\n\n'
-        output += code + '\n\n'
+            ' --------\n'
+        output += code.trim() + '\n\n'
     }
 
-    output = output.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+    const outputPath = path.resolve('__MERGED.ts')
+    fs.writeFileSync(outputPath, output, 'utf8')
 
-    const outPath = path.resolve(process.cwd(), '__MERGED.ts')
-    fs.writeFileSync(outPath, output, 'utf8')
-
-    console.log('Merged successfully into __MERGED.ts')
+    console.log('\n__MERGED.ts generated successfully\n')
 }

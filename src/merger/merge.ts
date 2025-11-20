@@ -20,6 +20,7 @@ function resolveFile(filePath: string) {
 
     const code = fs.readFileSync(filePath, 'utf8')
 
+    // Detect relative imports
     const importRegex =
         /import\s+(?:[\s\S]*?)?from\s+["'](\.\/.*?|\.{2}\/.*?)["'];?/g
 
@@ -60,22 +61,43 @@ export default function merge(entryFileInput?: string) {
 
     let output = ''
 
-    // Add modlib import at the top
+    // Keep modlib import at top
     output += "import * as modlib from 'modlib'\n\n"
 
     for (const file of ordered) {
         let code = fs.readFileSync(file, 'utf8')
 
-        // Remove all import statements
-        code = code.replace(/^\s*import\s+.*from\s+['"].+['"]\s*;?\s*$/gm, '')
+        // ------------------------------------------------------------
+        // 1. REMOVE ALL IMPORTS (ES Module)
+        // ------------------------------------------------------------
+        code = code.replace(/^\s*import\s+.*$/gm, '')
 
-        // Remove `export` but keep definitions
-        code = code.replace(
-            /^\s*export\s+(abstract\s+)?(?=class|interface|type|enum|const|let|var)/gm,
-            '$1'
-        )
+        // ------------------------------------------------------------
+        // 2. REMOVE ES-MODULE EXPORTS ONLY
+        //    These must be removed:
+        //      export { ... }
+        //      export * from ...
+        //      export default ...
+        //
+        //    DO NOT remove:
+        //      export namespace
+        //      export class / export abstract class
+        //      export enum / export function
+        // ------------------------------------------------------------
+        code = code
+            // export { ... }
+            .replace(/^\s*export\s*{[^}]+};?\s*$/gm, '')
+            // export * from ...
+            .replace(/^\s*export\s+\*.*$/gm, '')
+            // export default Something
+            .replace(/^\s*export\s+default\s+.*$/gm, '')
 
-        // Normalize EOLs
+        // ------------------------------------------------------------
+        // 3. DO NOT strip `export class`, `export abstract`, etc.
+        //    They belong to namespaces and MUST remain untouched.
+        // ------------------------------------------------------------
+
+        // Normalize EOL
         code = code.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
 
         // Trim trailing whitespace

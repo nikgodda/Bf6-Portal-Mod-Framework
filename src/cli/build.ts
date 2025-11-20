@@ -1,33 +1,55 @@
-import chokidar from 'chokidar'
+import chokidar from "chokidar"
+import path from "path"
+
+// dynamic merge loader with no TS errors
+async function loadMerge() {
+  const mod: any = await import("../merger/merge.js")
+  const mergeFn = mod.default ?? mod.merge
+
+  if (!mergeFn) {
+    console.error("ERROR: merge.js has no merge function")
+    return null
+  }
+
+  return mergeFn
+}
 
 export default async function run(args: string[]) {
-    const cmd = args[0]
+  const cmd = args[0]
 
-    if (cmd === 'build') {
-        const merger = await import('../merger/merge.js')
-        await merger.default?.()
-        return
-    }
+  // build
+  if (cmd === "build") {
+    const mergeFn = await loadMerge()
+    if (mergeFn) await mergeFn()
+    return
+  }
 
-    if (cmd === 'update-sdk') {
-        await import('../scripts/update-sdk.js')
-        return
-    }
+  // update-sdk
+  if (cmd === "update-sdk") {
+    await import("../scripts/update-sdk.js") // runs automatically
+    return
+  }
 
-    if (cmd === 'watch') {
-        console.log('Watching src/**/*.ts ...')
-        const merger = await import('../merger/merge.js')
+  // watch
+  if (cmd === "watch") {
+    const projectSrc = path.join(process.cwd(), "src")
+    console.log("Watching:", projectSrc)
 
-        chokidar.watch('src/**/*.ts').on('change', async (file) => {
-            console.log('Changed:', file)
-            await merger.default?.()
-        })
+    // load merge function once
+    const mergeFn = await loadMerge()
 
-        return
-    }
+    // watch real project source folder
+    chokidar.watch(projectSrc, { ignoreInitial: true }).on("change", async file => {
+      console.log("Changed:", file)
+      if (mergeFn) await mergeFn()
+    })
 
-    console.log('Usage:')
-    console.log('  bf6mod build')
-    console.log('  bf6mod update-sdk')
-    console.log('  bf6mod watch')
+    return
+  }
+
+  // help
+  console.log("Usage:")
+  console.log("  bf6mod build")
+  console.log("  bf6mod update-sdk")
+  console.log("  bf6mod watch")
 }

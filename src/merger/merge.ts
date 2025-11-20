@@ -9,6 +9,9 @@ const __dirname = path.dirname(__filename)
 const visited = new Set<string>()
 const ordered: string[] = []
 
+// Duplicate identifier tracking (global + exported)
+const nameRegistry = new Map<string, string>() // identifier → filePath
+
 function resolveFile(filePath: string) {
     if (visited.has(filePath)) return
     visited.add(filePath)
@@ -82,28 +85,62 @@ export default function merge(entryFileInput?: string) {
     for (const file of ordered) {
         let code = fs.readFileSync(file, 'utf8')
 
+        // ----------------------------------------------------------
+        // Duplicate identifier detection (exported + global)
+        // ----------------------------------------------------------
+        const declRegex =
+            /^\s*(?:export\s+)?(?:abstract\s+)?(class|interface|type|enum|const|let|var)\s+([A-Za-z0-9_]+)/gm
+
+        let match2
+        while ((match2 = declRegex.exec(code))) {
+            const kind = match2[1]
+            const identifier = match2[2]
+
+            if (!identifier) continue
+
+            if (nameRegistry.has(identifier)) {
+                console.error(
+                    `\n❌ MERGE ERROR: Duplicate top-level identifier detected!\n` +
+                    `   Identifier: ${identifier}\n` +
+                    `   Kind:       ${kind}\n\n` +
+                    `   First found in: ${nameRegistry.get(identifier)}\n` +
+                    `   Found again in: ${file}\n\n` +
+                    `➡ Rename one of these identifiers to avoid conflict.\n`
+                )
+                process.exit(1)
+            }
+
+            nameRegistry.set(identifier, file)
+        }
+
+        // ----------------------------------------------------------
         // 1. Remove ES module imports
+        // ----------------------------------------------------------
         code = code.replace(/^\s*import\s+.*$/gm, '')
 
+        // ----------------------------------------------------------
         // 2. Remove ES module exports ONLY
+        // ----------------------------------------------------------
         code = code
             .replace(/^\s*export\s*{[^}]+};?\s*$/gm, '') // export { ... }
             .replace(/^\s*export\s+\*.*$/gm, '') // export * from ...
             .replace(/^\s*export\s+default\s+.*$/gm, '') // export default ...
 
-        // Do NOT touch TypeScript namespace exports:
-        //   export namespace
-        //   export class
-        //   export abstract class
-        //   export function
-        //   export enum
+        // (We intentionally do NOT strip "export class" etc here!)
 
+        // ----------------------------------------------------------
         // 3. Normalize EOL
+        // ----------------------------------------------------------
         code = code.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
 
+        // ----------------------------------------------------------
         // 4. Remove trailing whitespace
+        // ----------------------------------------------------------
         code = code.replace(/[ \t]+$/gm, '')
 
+        // ----------------------------------------------------------
+        // 5. Append to output
+        // ----------------------------------------------------------
         output +=
             '// -------- FILE: ' +
             path.relative(process.cwd(), file) +

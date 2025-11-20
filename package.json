@@ -1,0 +1,20 @@
+{
+      "name": "bf6-portal-mod-framework",
+      "version": "1.0.0",
+      "description": "Framework and build system for Battlefield 6 Portal mods",
+      "main": "dist/index.js",
+      "types": "dist/index.d.ts",
+      "bin": {
+            "bf6mod": "bin/bf6mod.js"
+      },
+      "scripts": {
+            "build": "tsc",
+            "watch": "tsc -w",
+            "prepublishOnly": "npm run build",
+            "update-sdk": "ts-node src/scripts/update-sdk.ts"
+      },
+      "devDependencies": {
+            "typescript": "^5.0.0",
+            "ts-node": "^10.9.1"
+      }
+}

@@ -14,7 +14,10 @@
             "update-sdk": "ts-node src/scripts/update-sdk.ts"
       },
       "devDependencies": {
-            "typescript": "^5.0.0",
-            "ts-node": "^10.9.1"
+            "ts-node": "^10.9.1",
+            "typescript": "^5.0.0"
+      },
+      "dependencies": {
+            "chokidar": "^4.0.3"
       }
 }

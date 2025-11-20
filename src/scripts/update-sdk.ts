@@ -2,23 +2,21 @@ import fs from 'fs'
 import path from 'path'
 import https from 'https'
 
-const PROJECT_ROOT = process.cwd()
-const SDK_ROOT = path.join(PROJECT_ROOT, 'SDK')
-
 const FILES = [
     {
         url: 'https://raw.githubusercontent.com/battlefield-portal-community/OfficailPortalSDK/main/code/mod/index.d.ts',
-        local: path.join(SDK_ROOT, 'mod/index.d.ts'),
+        local: 'SDK/mod/index.d.ts',
     },
     {
         url: 'https://raw.githubusercontent.com/battlefield-portal-community/OfficailPortalSDK/main/code/modlib/index.ts',
-        local: path.join(SDK_ROOT, 'modlib/index.ts'),
+        local: 'SDK/modlib/index.ts',
     },
 ]
 
-function downloadFile(url: string, dest: string): Promise<void> {
-    return new Promise((resolve, reject) => {
+function downloadFile(url: string, dest: string) {
+    return new Promise<void>((resolve, reject) => {
         const dir = path.dirname(dest)
+
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
 
         const file = fs.createWriteStream(dest)
@@ -33,18 +31,28 @@ function downloadFile(url: string, dest: string): Promise<void> {
                 response.pipe(file)
 
                 file.on('finish', () => {
-                    file.close() // No callback allowed here
-                    resolve()
+                    file.close(() => {
+                        console.log('Updated:', dest)
+                        resolve()
+                    })
                 })
             })
-            .on('error', (err) => reject(err))
+            .on('error', reject)
     })
 }
 
 async function updateSDK() {
-    console.log('Updating SDK...')
-    for (const file of FILES) await downloadFile(file.url, file.local)
-    console.log('SDK updated')
+    console.log('Updating BF6 Portal SDK...\n')
+
+    for (const f of FILES) {
+        try {
+            await downloadFile(f.url, f.local)
+        } catch (err: any) {
+            console.error('Failed:', f.local, err.message)
+        }
+    }
+
+    console.log('\nSDK update complete.')
 }
 
 updateSDK()

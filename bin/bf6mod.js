@@ -1,19 +1,8 @@
 #!/usr/bin/env node
 
-import { build } from "../dist/cli/build.js"
-import { updateSDK } from "../dist/scripts/update-sdk.js"
+// Load the compiled CLI handler from dist
+// src/cli/build.ts exports:  export default async function run(args)
+import run from '../dist/cli/build.js'
 
-const command = process.argv[2]
-
-if (command === "build") {
-  build()
-} else if (command === "update-sdk") {
-  updateSDK()
-} else {
-  console.log("BF6MOD CLI")
-  console.log("")
-  console.log("Usage:")
-  console.log("  bf6mod build")
-  console.log("  bf6mod update-sdk")
-  console.log("")
-}
+// Pass command line arguments (ignoring "node" and script path)
+run(process.argv.slice(2))

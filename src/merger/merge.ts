@@ -9,9 +9,6 @@ const __dirname = path.dirname(__filename)
 const visited = new Set<string>()
 const ordered: string[] = []
 
-// Duplicate identifier tracking (global + exported)
-const nameRegistry = new Map<string, string>() // identifier → filePath
-
 function resolveFile(filePath: string) {
     if (visited.has(filePath)) return
     visited.add(filePath)
@@ -23,10 +20,6 @@ function resolveFile(filePath: string) {
 
     const code = fs.readFileSync(filePath, 'utf8')
 
-    // Matches:
-    //  - ./something
-    //  - ../something
-    //  - src/something
     const importRegex =
         /import\s+(?:[\s\S]*?)?from\s+["'](\.\/.*?|\.{2}\/.*?|src\/.*?)["'];?/g
 
@@ -45,13 +38,9 @@ function resolveImport(baseFile: string, reqPath: string) {
 
     let abs: string | null = null
 
-    // Case 1: src/... imports (absolute from project root)
     if (reqPath.startsWith('src/')) {
         abs = path.resolve(process.cwd(), reqPath)
-    }
-
-    // Case 2: relative imports ./ or ../
-    else {
+    } else {
         abs = path.resolve(baseDir, reqPath)
     }
 
@@ -70,6 +59,67 @@ function resolveImport(baseFile: string, reqPath: string) {
     return null
 }
 
+// ----------------------------
+// TOP-LEVEL DUPLICATE CHECK
+// ----------------------------
+
+interface Decl {
+    name: string
+    kind: string
+    file: string
+}
+
+function findTopLevelDecls(file: string): Decl[] {
+    const code = fs.readFileSync(file, 'utf8')
+    const lines = code.split(/\r?\n/)
+    const decls: Decl[] = []
+    let depth = 0
+
+    for (let line of lines) {
+        const opens = (line.match(/{/g) || []).length
+        const closes = (line.match(/}/g) || []).length
+        depth += opens - closes
+
+        if (depth !== 0) continue // only top-level
+
+        const reg =
+            /^\s*(export\s+)?(class|interface|enum|type|const|let|var)\s+([A-Za-z0-9_]+)/
+
+        const m = line.match(reg)
+        if (m) {
+            const kind = m[2]
+            const name = m[3]
+            decls.push({ name, kind, file })
+        }
+    }
+
+    return decls
+}
+
+function enforceIdentifierUniqueness(files: string[]) {
+    const map = new Map<string, Decl>()
+
+    for (const file of files) {
+        const decls = findTopLevelDecls(file)
+        for (const d of decls) {
+            if (map.has(d.name)) {
+                const a = map.get(d.name)!
+                console.error(
+                    '\nMERGE ERROR: Duplicate top-level identifier detected!'
+                )
+                console.error(`   Identifier: ${d.name}`)
+                console.error(`   Kind:       ${d.kind}\n`)
+                console.error(`   First found in: ${a.file}`)
+                console.error(`   Found again in: ${d.file}\n`)
+                process.exit(1)
+            }
+            map.set(d.name, d)
+        }
+    }
+}
+
+// ----------------------------
+
 export default function merge(entryFileInput?: string) {
     const entryFile =
         entryFileInput ?? path.resolve(process.cwd(), 'src/main.ts')
@@ -77,70 +127,26 @@ export default function merge(entryFileInput?: string) {
     const absEntry = path.resolve(entryFile)
     resolveFile(absEntry)
 
+    // BEFORE merging — run duplicate check
+    enforceIdentifierUniqueness(ordered)
+
     let output = ''
 
-    // Keep modlib import at the top
     output += "import * as modlib from 'modlib'\n\n"
 
     for (const file of ordered) {
         let code = fs.readFileSync(file, 'utf8')
 
-        // ----------------------------------------------------------
-        // Duplicate identifier detection (exported + global)
-        // ----------------------------------------------------------
-        const declRegex =
-            /^\s*(?:export\s+)?(?:abstract\s+)?(class|interface|type|enum|const|let|var)\s+([A-Za-z0-9_]+)/gm
-
-        let match2
-        while ((match2 = declRegex.exec(code))) {
-            const kind = match2[1]
-            const identifier = match2[2]
-
-            if (!identifier) continue
-
-            if (nameRegistry.has(identifier)) {
-                console.error(
-                    `\n❌ MERGE ERROR: Duplicate top-level identifier detected!\n` +
-                    `   Identifier: ${identifier}\n` +
-                    `   Kind:       ${kind}\n\n` +
-                    `   First found in: ${nameRegistry.get(identifier)}\n` +
-                    `   Found again in: ${file}\n\n` +
-                    `➡ Rename one of these identifiers to avoid conflict.\n`
-                )
-                process.exit(1)
-            }
-
-            nameRegistry.set(identifier, file)
-        }
-
-        // ----------------------------------------------------------
-        // 1. Remove ES module imports
-        // ----------------------------------------------------------
         code = code.replace(/^\s*import\s+.*$/gm, '')
 
-        // ----------------------------------------------------------
-        // 2. Remove ES module exports ONLY
-        // ----------------------------------------------------------
         code = code
-            .replace(/^\s*export\s*{[^}]+};?\s*$/gm, '') // export { ... }
-            .replace(/^\s*export\s+\*.*$/gm, '') // export * from ...
-            .replace(/^\s*export\s+default\s+.*$/gm, '') // export default ...
+            .replace(/^\s*export\s*{[^}]+};?\s*$/gm, '')
+            .replace(/^\s*export\s+\*.*$/gm, '')
+            .replace(/^\s*export\s+default\s+.*$/gm, '')
 
-        // (We intentionally do NOT strip "export class" etc here!)
-
-        // ----------------------------------------------------------
-        // 3. Normalize EOL
-        // ----------------------------------------------------------
         code = code.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
-
-        // ----------------------------------------------------------
-        // 4. Remove trailing whitespace
-        // ----------------------------------------------------------
         code = code.replace(/[ \t]+$/gm, '')
 
-        // ----------------------------------------------------------
-        // 5. Append to output
-        // ----------------------------------------------------------
         output +=
             '// -------- FILE: ' +
             path.relative(process.cwd(), file) +

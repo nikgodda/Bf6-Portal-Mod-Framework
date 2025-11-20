@@ -54,8 +54,8 @@ bf6mod update-sdk
 This downloads the official Portal SDK typings into:
 
 ```
-code/mod/
-code/modlib/
+SDK/mod/
+SDK/modlib/
 ```
 
 ---
@@ -68,7 +68,7 @@ src/
   GameModes/
   Core/
 
-code/
+SDK/
   mod/
   modlib/
 

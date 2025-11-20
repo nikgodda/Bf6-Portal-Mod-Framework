@@ -3,7 +3,7 @@ import path from 'path'
 import https from 'https'
 
 const PROJECT_ROOT = process.cwd()
-const SDK_ROOT = path.join(PROJECT_ROOT, 'code')
+const SDK_ROOT = path.join(PROJECT_ROOT, 'SKD')
 
 const FILES = [
     {

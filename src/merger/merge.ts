@@ -84,12 +84,12 @@ function sanitizeCode(code: string) {
 // Main merge logic
 // ----------------------------------------------
 export default function merge() {
-    const entryFile = path.resolve(__dirname, '../../src/main.ts')
+    const entryFile = path.resolve(process.cwd(), 'src/main.ts')
+
     resolveFile(entryFile)
 
     let output = ''
 
-    // Always add modlib import on top
     output += "import * as modlib from 'modlib'\n\n"
 
     for (const file of ordered) {
@@ -102,10 +102,9 @@ export default function merge() {
         output += code + '\n\n'
     }
 
-    // Final EOL normalization
     output = output.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
 
-    const outPath = path.resolve('__MERGED.ts')
+    const outPath = path.resolve(process.cwd(), '__MERGED.ts')
     fs.writeFileSync(outPath, output, 'utf8')
 
     console.log('Merged successfully into __MERGED.ts')

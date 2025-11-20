@@ -9,6 +9,9 @@ const __dirname = path.dirname(__filename)
 const visited = new Set<string>()
 const ordered: string[] = []
 
+// ----------------------------------------------
+// Recursively resolve file imports
+// ----------------------------------------------
 function resolveFile(filePath: string) {
     if (visited.has(filePath)) return
     visited.add(filePath)
@@ -19,6 +22,7 @@ function resolveFile(filePath: string) {
     }
 
     const code = fs.readFileSync(filePath, 'utf8')
+
     const importRegex =
         /import\s+(?:[\s\S]*?)?from\s+["'](\.\/.*?|\.{2}\/.*?)["'];?/g
 
@@ -50,6 +54,9 @@ function resolveImport(baseFile: string, reqPath: string) {
     return null
 }
 
+// ----------------------------------------------
+// Main merge function
+// ----------------------------------------------
 export default function merge(entryFileInput?: string) {
     const entryFile =
         entryFileInput ?? path.resolve(process.cwd(), 'src/main.ts')
@@ -59,7 +66,7 @@ export default function merge(entryFileInput?: string) {
 
     let output = ''
 
-    // Add modlib import at the very top
+    // Add modlib import at the top
     output += "import * as modlib from 'modlib'\n\n"
 
     for (const file of ordered) {
@@ -68,20 +75,20 @@ export default function merge(entryFileInput?: string) {
         // Remove all import statements
         code = code.replace(/^\s*import\s+.*from\s+['"].+['"]\s*;?\s*$/gm, '')
 
-        // Remove 'export' keywords
+        // Remove `export` but preserve class/const/let/var definitions
         code = code.replace(
             /^\s*export\s+(abstract\s+)?(?=class|interface|type|enum|const|let|var)/gm,
             '$1'
         )
 
-        // Remove comments (except our FILE marker)
-        code = code.replace(/\/\/[^\n]*/g, '')
+        // Remove comments but KEEP the newline
+        code = code.replace(/\/\/.*$/gm, '')
 
-        // Normalize EOL
+        // Normalize EOL to LF
         code = code.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
 
-        // Remove excessive blank lines
-        code = code.replace(/\n{3,}/g, '\n\n')
+        // Trim trailing whitespace on lines
+        code = code.replace(/[ \t]+$/gm, '')
 
         output +=
             '// -------- FILE: ' +
@@ -90,7 +97,7 @@ export default function merge(entryFileInput?: string) {
         output += code.trim() + '\n\n'
     }
 
-    const outputPath = path.resolve('__MERGED.ts')
+    const outputPath = path.resolve(process.cwd(), '__MERGED.ts')
     fs.writeFileSync(outputPath, output, 'utf8')
 
     console.log('\n__MERGED.ts generated successfully\n')

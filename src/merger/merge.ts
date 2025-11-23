@@ -137,7 +137,7 @@ export default function merge(entryFileInput?: string) {
     for (const file of ordered) {
         let code = fs.readFileSync(file, 'utf8')
 
-        code = code.replace(/^\s*import\s+.*$/gm, '')
+        code = code.replace(/import[\s\S]*?from\s+['"][^'"]+['"]\s*;?/g, '')
 
         code = code
             .replace(/^\s*export\s*{[^}]+};?\s*$/gm, '')

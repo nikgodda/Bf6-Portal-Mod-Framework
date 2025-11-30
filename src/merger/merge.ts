@@ -9,9 +9,37 @@ const __dirname = path.dirname(__filename)
 const visited = new Set<string>()
 const ordered: string[] = []
 
+// --- CIRCULAR: new tracking sets
+const visiting = new Set<string>()
+const dependencyStack: string[] = []
+
 function resolveFile(filePath: string) {
+    // --- CIRCULAR: if already resolved, skip
     if (visited.has(filePath)) return
-    visited.add(filePath)
+
+    // --- CIRCULAR: detect cycle
+    if (visiting.has(filePath)) {
+        const startIndex = dependencyStack.indexOf(filePath)
+        const cycle = [
+            ...dependencyStack.slice(startIndex >= 0 ? startIndex : 0),
+            filePath,
+        ]
+
+        console.error('')
+        console.error('CIRCULAR DEPENDENCY DETECTED')
+        console.error('The following import chain forms a cycle:')
+        for (const f of cycle) {
+            console.error('  ' + path.relative(process.cwd(), f))
+        }
+        console.error('')
+        console.error('Fix this cycle by redesigning imports')
+        console.error('')
+        process.exit(1)
+    }
+
+    // --- CIRCULAR: mark as visiting
+    visiting.add(filePath)
+    dependencyStack.push(filePath)
 
     if (!fs.existsSync(filePath)) {
         console.error('File not found: ' + filePath)
@@ -30,6 +58,11 @@ function resolveFile(filePath: string) {
         if (resolved) resolveFile(resolved)
     }
 
+    // --- CIRCULAR: finished visiting
+    dependencyStack.pop()
+    visiting.delete(filePath)
+
+    visited.add(filePath)
     ordered.push(filePath)
 }
 
@@ -80,7 +113,7 @@ function findTopLevelDecls(file: string): Decl[] {
         const closes = (line.match(/}/g) || []).length
         depth += opens - closes
 
-        if (depth !== 0) continue // only top-level
+        if (depth !== 0) continue
 
         const reg =
             /^\s*(export\s+)?(class|interface|enum|type|const|let|var)\s+([A-Za-z0-9_]+)/
@@ -104,13 +137,14 @@ function enforceIdentifierUniqueness(files: string[]) {
         for (const d of decls) {
             if (map.has(d.name)) {
                 const a = map.get(d.name)!
-                console.error(
-                    '\nMERGE ERROR: Duplicate top-level identifier detected!'
-                )
-                console.error(`   Identifier: ${d.name}`)
-                console.error(`   Kind:       ${d.kind}\n`)
-                console.error(`   First found in: ${a.file}`)
-                console.error(`   Found again in: ${d.file}\n`)
+                console.error('')
+                console.error('MERGE ERROR: Duplicate top-level identifier!')
+                console.error('Identifier: ' + d.name)
+                console.error('Kind:       ' + d.kind)
+                console.error('')
+                console.error('First found in: ' + a.file)
+                console.error('Found again in: ' + d.file)
+                console.error('')
                 process.exit(1)
             }
             map.set(d.name, d)

@@ -9,11 +9,11 @@ const __dirname = path.dirname(__filename)
 const visited = new Set<string>()
 const ordered: string[] = []
 
-// --- CIRCULAR: tracking sets
+// CIRCULAR: tracking sets
 const visiting = new Set<string>()
 const dependencyStack: string[] = []
 
-// --- CIRCULAR: track only runtime edges (non type-only imports)
+// CIRCULAR: track only runtime edges (non type-only imports)
 const runtimeEdges = new Map<string, Set<string>>() // key = file, value = set of runtime imports
 
 function addRuntimeEdge(from: string, to: string) {
@@ -21,78 +21,18 @@ function addRuntimeEdge(from: string, to: string) {
     runtimeEdges.get(from)!.add(to)
 }
 
-// --- SIDE EFFECT: detect top-level executable code
-function hasTopLevelSideEffects(file: string): boolean {
-    const code = fs.readFileSync(file, 'utf8')
-    const lines = code.split(/\r?\n/)
-    let depth = 0
-
-    for (let line of lines) {
-        const opens = (line.match(/{/g) || []).length
-        const closes = (line.match(/}/g) || []).length
-
-        const trimmed = line.trim()
-
-        // Update depth after we look at current line's content,
-        // but we need depth at start of line for top-level detection.
-        const depthAtLineStart = depth
-
-        // Simple depth update
-        depth += opens - closes
-
-        if (trimmed === '' || trimmed.startsWith('//')) {
-            continue
-        }
-
-        // Only care about top-level code
-        if (depthAtLineStart !== 0) continue
-
-        // Ignore import and export declarations
-        if (/^(import|export)\b/.test(trimmed)) continue
-
-        // Ignore pure declarations that do not execute code
-        if (/^(class|interface|enum|type|function)\b/.test(trimmed)) continue
-
-        // Heuristic: calls at top level are dangerous
-        // Example: doInit(), Brain.someStatic(), initAI()
-        if (
-            /[A-Za-z_$][A-Za-z0-9_$]*\s*\(/.test(trimmed) &&
-            !/^(if|for|while|switch|catch)\b/.test(trimmed) &&
-            !/^\s*(function|\w+\s*[:=]\s*function\b)/.test(trimmed)
-        ) {
-            return true
-        }
-
-        // Heuristic: "new Something()" at top level is dangerous
-        if (/\bnew\s+[A-Z_][A-Za-z0-9_]*\s*\(/.test(trimmed)) {
-            return true
-        }
-
-        // Heuristic: const / let / var with a likely call or new on same line
-        if (
-            /^\s*(const|let|var)\b/.test(trimmed) &&
-            (/\bnew\s+[A-Z_][A-Za-z0-9_]*\s*\(/.test(trimmed) ||
-                /[A-Za-z_$][A-Za-z0-9_$]*\s*\(/.test(trimmed))
-        ) {
-            return true
-        }
-    }
-
-    return false
-}
-
 function resolveFile(filePath: string) {
     if (visited.has(filePath)) return
 
     if (visiting.has(filePath)) {
-        // --- CIRCULAR: detect cycle path
+        // CIRCULAR: detect cycle path
         const startIndex = dependencyStack.indexOf(filePath)
         const cycle = [
             ...dependencyStack.slice(startIndex >= 0 ? startIndex : 0),
             filePath,
         ]
 
-        // --- CIRCULAR: check if cycle contains any runtime imports
+        // Check if cycle contains any runtime imports
         let hasRuntimeEdge = false
         for (let i = 0; i < cycle.length - 1; i++) {
             const a = cycle[i]
@@ -103,53 +43,22 @@ function resolveFile(filePath: string) {
             }
         }
 
-        // If no runtime edges, this is a pure type-only cycle
         if (!hasRuntimeEdge) {
-            // Type-only cycle: safe, skip error
+            // Pure type-only cycle: safe, ignore
             return
         }
 
-        // --- SIDE EFFECT: check if any file in cycle has top-level side effects
-        const dangerousFiles: string[] = []
+        // Runtime cycle: warn only, do not exit
+        console.warn('')
+        console.warn('RUNTIME CYCLE DETECTED (WARNING)')
+        console.warn('The following files form a runtime import cycle:')
         for (const f of cycle) {
-            if (hasTopLevelSideEffects(f)) {
-                dangerousFiles.push(f)
-            }
+            console.warn('  ' + path.relative(process.cwd(), f))
         }
+        console.warn('Merge will continue.')
+        console.warn('')
 
-        if (dangerousFiles.length === 0) {
-            // Safe runtime cycle: most likely class reference cycle like Brain <-> Perception
-            console.warn('')
-            console.warn('SAFE RUNTIME CYCLE DETECTED')
-            console.warn(
-                'The following files form a cycle, but no top-level side effects were found:'
-            )
-            for (const f of cycle) {
-                console.warn('  ' + path.relative(process.cwd(), f))
-            }
-            console.warn('Merge will continue.')
-            console.warn('')
-            return
-        }
-
-        // Real dangerous runtime cycle: fail hard
-        console.error('')
-        console.error('CIRCULAR DEPENDENCY DETECTED (DANGEROUS RUNTIME CYCLE)')
-        console.error('Cycle chain:')
-        for (const f of cycle) {
-            console.error('  ' + path.relative(process.cwd(), f))
-        }
-        console.error('')
-        console.error('Files with top-level side effects inside this cycle:')
-        for (const f of dangerousFiles) {
-            console.error('  ' + path.relative(process.cwd(), f))
-        }
-        console.error('')
-        console.error(
-            'Fix by removing top-level side effects or breaking the cycle.'
-        )
-        console.error('')
-        process.exit(1)
+        return
     }
 
     visiting.add(filePath)

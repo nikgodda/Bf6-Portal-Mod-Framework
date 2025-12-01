@@ -1,43 +1,65 @@
-import merge from '../merger/merge.js'
-import fs from 'fs'
-import path from 'path'
 import ts from 'typescript'
+import path from 'path'
+import fs from 'fs'
+import merge from '../merger/merge.js'
 
-interface BuildOptions {
-    skipFiles?: (filePath: string) => boolean
-}
-
-export async function buildProject(opts: BuildOptions = {}) {
+export default async function buildProject(projectDir: string, skipFiles?: (filePath: string) => boolean) {
     console.log('Compiling TypeScript...')
 
-    const tsconfigPath = path.resolve(process.cwd(), 'tsconfig.json')
-    const tsconfig = ts.readConfigFile(tsconfigPath, ts.sys.readFile).config
-    const parsed = ts.parseJsonConfigFileContent(
-        tsconfig,
-        ts.sys,
-        path.dirname(tsconfigPath)
-    )
-
-    const program = ts.createProgram(parsed.fileNames, parsed.options)
-    const emit = program.emit()
-
-    const diagnostics = ts
-        .getPreEmitDiagnostics(program)
-        .concat(emit.diagnostics)
-
-    if (diagnostics.length > 0) {
-        console.error('TypeScript compilation errors:')
-        diagnostics.forEach((d) =>
-            console.error(ts.flattenDiagnosticMessageText(d.messageText, '\n'))
-        )
-        process.exit(1)
+    const tsconfigPath = path.join(projectDir, 'tsconfig.json')
+    if (!fs.existsSync(tsconfigPath)) {
+        console.error('ERROR: tsconfig.json not found in project root')
+        return
     }
 
-    console.log('Merging source files...')
+    // Parse tsconfig.json
+    const configFile = ts.readConfigFile(tsconfigPath, ts.sys.readFile)
+    const parsed = ts.parseJsonConfigFileContent(
+        configFile.config,
+        ts.sys,
+        projectDir,
+        {},
+        tsconfigPath
+    )
 
-    merge({
-        skipFiles: opts.skipFiles ? opts.skipFiles : undefined,
+    // Filter OUT the merged file (__MERGED.ts)
+    const cleanFileList = parsed.fileNames.filter(f => {
+        const base = path.basename(f)
+        return base !== '__MERGED.ts'
     })
 
-    console.log('Build completed.')
+    // Create TypeScript program
+    const program = ts.createProgram({
+        rootNames: cleanFileList,
+        options: parsed.options
+    })
+
+    // Perform compilation
+    const emitResult = program.emit()
+
+    const allDiagnostics = ts.getPreEmitDiagnostics(program).concat(emitResult.diagnostics)
+    if (allDiagnostics.length > 0) {
+        console.log('TypeScript compilation errors:')
+        for (const diag of allDiagnostics) {
+            const msg = ts.flattenDiagnosticMessageText(diag.messageText, '\n')
+            if (diag.file) {
+                const { line, character } = diag.file.getLineAndCharacterOfPosition(diag.start || 0)
+                console.log(`${diag.file.fileName} (${line + 1},${character + 1}): ${msg}`)
+            } else {
+                console.log(msg)
+            }
+        }
+        return
+    }
+
+    console.log('TypeScript compiled successfully.')
+
+    // Now run the merger
+    console.log('Merging files...')
+    merge({
+        entryFile: path.join(projectDir, 'src', 'main.ts'),
+        skipFiles
+    })
+
+    console.log('Build complete.')
 }

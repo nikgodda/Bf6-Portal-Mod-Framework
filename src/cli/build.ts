@@ -1,6 +1,7 @@
 import chokidar from 'chokidar'
 import path from 'path'
 
+// Loads merge.js from src/scripts/merge.js
 async function loadMerge() {
     const mod: any = await import('../scripts/merge.js')
     const mergeFn = mod.default ?? mod.merge
@@ -13,9 +14,9 @@ async function loadMerge() {
     return mergeFn
 }
 
+// Loads strings.js (auto-executes on import)
 async function loadStrings() {
-    const mod: any = await import('../scripts/strings.js')
-    // auto-run on import (strings.js runs immediately)
+    await import('../scripts/strings.js')
     return true
 }
 
@@ -29,7 +30,7 @@ export default async function run(args: string[]) {
         const mergeFn = await loadMerge()
         if (mergeFn) await mergeFn()
 
-        // Strings must run AFTER merge, because it reads __SCRIPT.ts
+        // Strings must run after merge because it parses __SCRIPT.ts
         await loadStrings()
         return
     }
@@ -52,11 +53,11 @@ export default async function run(args: string[]) {
         const mergeFn = await loadMerge()
         if (!mergeFn) return
 
-        // Initial merge
+        // Run initial merge immediately
         console.log('Initial merge...')
         await mergeFn()
 
-        // Watch changes, run merge only
+        // Watch src/ and re-run merge
         chokidar
             .watch(projectSrc, { ignoreInitial: true })
             .on('change', async (file) => {

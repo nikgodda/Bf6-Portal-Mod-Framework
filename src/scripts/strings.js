@@ -13,11 +13,6 @@ const OUTFILE = path.join(ROOT, '__STRINGS.json')
 // Utility
 // -------------------------------------------------------
 
-function countPlaceholders(text) {
-    const m = text.match(/\{\}/g)
-    return m ? m.length : 0
-}
-
 function ensureNamespace(obj, parts) {
     let cur = obj
     for (const p of parts) {
@@ -27,6 +22,11 @@ function ensureNamespace(obj, parts) {
         cur = cur[p]
     }
     return cur
+}
+
+function countPlaceholders(str) {
+    const m = str.match(/\{\}/g)
+    return m ? m.length : 0
 }
 
 function loadExistingStrings() {
@@ -40,7 +40,7 @@ function loadExistingStrings() {
 }
 
 // -------------------------------------------------------
-// Annotation parsing
+// Parse annotations (@range, @keys, @values)
 // -------------------------------------------------------
 
 function parseAnnotations(content) {
@@ -48,6 +48,7 @@ function parseAnnotations(content) {
     const lines = content.split(/\r?\n/)
 
     for (const line of lines) {
+        // @range ns: a-b
         let m = line.match(
             /\/\/\s*@range\s+([A-Za-z0-9_]+)\s*:\s*(\d+)\s*-\s*(\d+)/
         )
@@ -61,6 +62,7 @@ function parseAnnotations(content) {
             continue
         }
 
+        // @keys ns: A, B, C
         m = line.match(/\/\/\s*@keys\s+([A-Za-z0-9_]+)\s*:\s*([^]+)/)
         if (m) {
             const ns = m[1]
@@ -72,6 +74,7 @@ function parseAnnotations(content) {
             continue
         }
 
+        // @values ns arrayName
         m = line.match(/\/\/\s*@values\s+([A-Za-z0-9_]+)\s+([A-Za-z0-9_]+)/)
         if (m) {
             anns.push({ type: 'values', ns: m[1], arrayName: m[2] })
@@ -83,56 +86,64 @@ function parseAnnotations(content) {
 }
 
 function extractArrayValues(content) {
-    const out = {}
+    const arrays = {}
     const regex = /const\s+([A-Za-z0-9_]+)\s*=\s*\[\s*([^]*?)\s*\]/gm
     let m
+
     while ((m = regex.exec(content)) !== null) {
         const name = m[1]
         const body = m[2]
-        const vals = [...body.matchAll(/["'`]([^"'`]+)["'`]/g)].map(
+        const values = [...body.matchAll(/["'`]([^"'`]+)["'`]/g)].map(
             (mm) => mm[1]
         )
-        out[name] = vals
+        arrays[name] = values
     }
-    return out
+
+    return arrays
 }
 
 // -------------------------------------------------------
-// Key extraction from __SCRIPT.ts
+// Extract Message keys
 // -------------------------------------------------------
 
 function extractKeyRefs(content) {
     const refs = []
 
-    // Static: mod.Message("ns.key", ...)
+    // Static Message("ns.key", ...)
     const staticMsg =
         /mod\.Message\s*\(\s*(['"`])([^"'`]+)\1\s*(?:,([^)]*))?\)/g
     let m
     while ((m = staticMsg.exec(content)) !== null) {
-        const key = m[2]
-        const params = m[3]
-        const paramCount = params ? params.split(',').length : 0
-        refs.push({ key, paramCount, isDynamic: false })
-    }
-
-    // Static: mod.stringkeys.ns.key
-    const sk = /mod\.stringkeys\.([A-Za-z0-9_$.]+)/g
-    while ((m = sk.exec(content)) !== null) {
-        refs.push({ key: m[1], paramCount: 0, isDynamic: false })
-    }
-
-    // Dynamic: mod.Message(`ns.${something}`, ...)
-    const dyn =
-        /mod\.Message\s*\(\s*`([A-Za-z0-9_]+)\.\$\{([^}]+)\}`\s*(?:,([^)]*))?\)/g
-    while ((m = dyn.exec(content)) !== null) {
-        const ns = m[1]
         const params = m[3]
         const paramCount = params ? params.split(',').length : 0
         refs.push({
-            key: ns,
+            key: m[2],
             paramCount,
+            isDynamic: false,
+        })
+    }
+
+    // Static stringkeys.ns.key
+    const staticSK = /mod\.stringkeys\.([A-Za-z0-9_$.]+)/g
+    while ((m = staticSK.exec(content)) !== null) {
+        refs.push({
+            key: m[1],
+            paramCount: 0,
+            isDynamic: false,
+        })
+    }
+
+    // Dynamic: Message(`ns.${value}`, ...)
+    const dynamicMsg =
+        /mod\.Message\s*\(\s*`([A-Za-z0-9_]+)\.\$\{([^}]+)\}`\s*(?:,([^)]*))?\)/g
+    while ((m = dynamicMsg.exec(content)) !== null) {
+        const params = m[3]
+        const paramCount = params ? params.split(',').length : 0
+        refs.push({
+            key: m[1],
             isDynamic: true,
-            dynamicNamespace: ns,
+            dynamicNamespace: m[1],
+            paramCount,
         })
     }
 
@@ -140,7 +151,7 @@ function extractKeyRefs(content) {
 }
 
 // -------------------------------------------------------
-// Strings update
+// Apply updates to strings.json
 // -------------------------------------------------------
 
 function updateKey(fullKey, paramCount, strings) {
@@ -148,33 +159,30 @@ function updateKey(fullKey, paramCount, strings) {
     const leaf = parts.pop()
     const parent = ensureNamespace(strings, parts)
 
-    let val = parent[leaf]
+    let value = parent[leaf]
 
-    if (val === undefined) {
-        // new key: default value is key, plus {} for params
-        val = fullKey
-        if (paramCount > 0) {
-            val += ' ' + '{}'.repeat(paramCount)
-        }
-        parent[leaf] = val
+    // New key
+    if (value === undefined) {
+        value = fullKey
+        if (paramCount > 0) value += ' ' + '{}'.repeat(paramCount)
+        parent[leaf] = value
         console.log('Added:', fullKey)
         return true
     }
 
-    if (typeof val === 'string') {
-        const existing = countPlaceholders(val)
-        if (existing < paramCount) {
-            parent[leaf] = val + ' ' + '{}'.repeat(paramCount - existing)
-            console.log('Updated placeholders for:', fullKey)
-            return true
-        }
+    // Existing value → maybe add placeholders
+    const existingPH = countPlaceholders(value)
+    if (existingPH < paramCount) {
+        parent[leaf] = value + ' ' + '{}'.repeat(paramCount - existingPH)
+        console.log('Updated placeholders for:', fullKey)
+        return true
     }
 
     return false
 }
 
 // -------------------------------------------------------
-// Main
+// MAIN
 // -------------------------------------------------------
 
 export default function run() {
@@ -183,53 +191,55 @@ export default function run() {
         process.exit(1)
     }
 
-    console.log('Reading __SCRIPT.ts for localization keys...')
     const content = fs.readFileSync(SCRIPT_FILE, 'utf8')
-
     const strings = loadExistingStrings()
-    const refs = extractKeyRefs(content)
     const annotations = parseAnnotations(content)
     const arrays = extractArrayValues(content)
+    const refs = extractKeyRefs(content)
 
     let changed = false
 
-    // Handle dynamic keys with annotations
+    // Dynamic keys
     for (const ref of refs) {
         if (!ref.isDynamic) continue
 
         const ns = ref.dynamicNamespace
 
+        // @range
         const rangeAnn = annotations.find(
             (a) => a.type === 'range' && a.ns === ns
         )
         if (rangeAnn) {
             for (let i = rangeAnn.start; i <= rangeAnn.end; i++) {
-                const key = ns + '.' + i
-                changed = updateKey(key, ref.paramCount, strings) || changed
+                changed =
+                    updateKey(`${ns}.${i}`, ref.paramCount, strings) || changed
             }
             continue
         }
 
+        // @keys
         const keysAnn = annotations.find(
             (a) => a.type === 'keys' && a.ns === ns
         )
         if (keysAnn) {
             for (const k of keysAnn.keys) {
-                const key = ns + '.' + k
-                changed = updateKey(key, ref.paramCount, strings) || changed
+                changed =
+                    updateKey(`${ns}.${k}`, ref.paramCount, strings) || changed
             }
             continue
         }
 
-        const valuesAnn = annotations.find(
+        // @values
+        const valAnn = annotations.find(
             (a) => a.type === 'values' && a.ns === ns
         )
-        if (valuesAnn) {
-            const arr = arrays[valuesAnn.arrayName]
+        if (valAnn) {
+            const arr = arrays[valAnn.arrayName]
             if (arr) {
                 for (const k of arr) {
-                    const key = ns + '.' + k
-                    changed = updateKey(key, ref.paramCount, strings) || changed
+                    changed =
+                        updateKey(`${ns}.${k}`, ref.paramCount, strings) ||
+                        changed
                 }
                 continue
             }
@@ -242,12 +252,13 @@ export default function run() {
         )
     }
 
-    // Handle static keys
+    // Static keys
     for (const ref of refs) {
         if (ref.isDynamic) continue
         changed = updateKey(ref.key, ref.paramCount, strings) || changed
     }
 
+    // Write file
     if (changed) {
         fs.writeFileSync(
             OUTFILE,

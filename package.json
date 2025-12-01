@@ -10,14 +10,16 @@
       "scripts": {
             "build": "tsc",
             "watch": "tsc -w",
-            "prepublishOnly": "npm run build",
-            "update-sdk": "ts-node src/scripts/update-sdk.ts"
+            "merge": "node src/scripts/merge.js",
+            "strings": "node src/scripts/strings.js",
+            "update-sdk": "node src/scripts/update-sdk.js",
+            "mod-build": "npm run merge && npm run strings",
+            "prepublishOnly": "npm run build"
       },
       "dependencies": {
             "chokidar": "^4.0.3"
       },
       "devDependencies": {
-            "typescript": "^5.0.0",
-            "ts-node": "^10.9.1"
+            "typescript": "^5.0.0"
       }
 }

@@ -13,10 +13,9 @@ const FILES = [
     },
 ]
 
-function downloadFile(url: string, dest: string) {
-    return new Promise<void>((resolve, reject) => {
+function downloadFile(url, dest) {
+    return new Promise((resolve, reject) => {
         const dir = path.dirname(dest)
-
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
 
         const file = fs.createWriteStream(dest)
@@ -47,7 +46,7 @@ async function updateSDK() {
     for (const f of FILES) {
         try {
             await downloadFile(f.url, f.local)
-        } catch (err: any) {
+        } catch (err) {
             console.error('Failed:', f.local, err.message)
         }
     }

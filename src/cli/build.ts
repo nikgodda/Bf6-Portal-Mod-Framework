@@ -2,8 +2,7 @@ import chokidar from 'chokidar'
 import path from 'path'
 
 async function loadMerge() {
-    // Cast to ANY to avoid TS export type errors
-    const mod: any = await import('../merger/merge.js')
+    const mod: any = await import('../scripts/merge.js')
     const mergeFn = mod.default ?? mod.merge
 
     if (!mergeFn) {
@@ -12,6 +11,12 @@ async function loadMerge() {
     }
 
     return mergeFn
+}
+
+async function loadStrings() {
+    const mod: any = await import('../scripts/strings.js')
+    // auto-run on import (strings.js runs immediately)
+    return true
 }
 
 export default async function run(args: string[]) {
@@ -23,6 +28,9 @@ export default async function run(args: string[]) {
     if (cmd === 'build') {
         const mergeFn = await loadMerge()
         if (mergeFn) await mergeFn()
+
+        // Strings must run AFTER merge, because it reads __SCRIPT.ts
+        await loadStrings()
         return
     }
 
@@ -30,7 +38,7 @@ export default async function run(args: string[]) {
     // update-sdk
     // --------------------------------------------------
     if (cmd === 'update-sdk') {
-        await import('../scripts/update-sdk.js') // auto-run on import
+        await import('../scripts/update-sdk.js')
         return
     }
 
@@ -44,11 +52,11 @@ export default async function run(args: string[]) {
         const mergeFn = await loadMerge()
         if (!mergeFn) return
 
-        // Run initial build immediately
-        console.log('Initial build...')
+        // Initial merge
+        console.log('Initial merge...')
         await mergeFn()
 
-        // Watch for file changes
+        // Watch changes, run merge only
         chokidar
             .watch(projectSrc, { ignoreInitial: true })
             .on('change', async (file) => {

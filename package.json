@@ -11,11 +11,11 @@
             "build": "tsc",
             "watch": "tsc -w",
             "prepublishOnly": "npm run build",
-            "update-sdk": "ts-node src/scripts/update-sdk.ts"
+            "update-sdk": "ts-node src/scripts/update-sdk.ts",
+            "typescript": "^5.0.0"
       },
       "devDependencies": {
-            "ts-node": "^10.9.1",
-            "typescript": "^5.0.0"
+            "ts-node": "^10.9.1"
       },
       "dependencies": {
             "chokidar": "^4.0.3"

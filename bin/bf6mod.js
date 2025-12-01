@@ -1,5 +1,59 @@
 #!/usr/bin/env node
 
-import run from '../dist/cli/build.js'
+// ------------------------------------------------------------
+// CLI argument parsing for skip option
+// Example: bf6mod build --skip=index.ts,ui/index.ts
+// ------------------------------------------------------------
+const rawArgs = process.argv.slice(2)
+const skipArg = rawArgs.find(a => a.startsWith('--skip='))
 
-run(process.argv.slice(2))
+let skipList = []
+if (skipArg) {
+    skipList = skipArg
+        .replace('--skip=', '')
+        .split(',')
+        .map(x => x.trim())
+}
+
+// Import build command from compiled dist folder
+const { buildProject } = require('../dist/commands/build.js')
+
+async function main() {
+    const args = rawArgs.filter(a => !a.startsWith('--skip='))
+    const cmd = args[0]
+
+    if (!cmd) {
+        console.log("Usage: bf6mod <command>")
+        console.log("Available commands: build, watch, update-sdk")
+        return
+    }
+
+    if (cmd === "build") {
+        await buildProject({
+            skipFiles: filePath => {
+                if (skipList.length === 0) return false
+                return skipList.some(skip => filePath.endsWith(skip))
+            }
+        })
+        return
+    }
+
+    if (cmd === "watch") {
+        const { watchProject } = require('../dist/commands/watch.js')
+        await watchProject()
+        return
+    }
+
+    if (cmd === "update-sdk") {
+        const { updateSDK } = require('../dist/scripts/update-sdk.js')
+        await updateSDK()
+        return
+    }
+
+    console.log("Unknown command:", cmd)
+}
+
+main().catch(err => {
+    console.error("Error:", err)
+    process.exit(1)
+})

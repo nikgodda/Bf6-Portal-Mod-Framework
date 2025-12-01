@@ -9,8 +9,39 @@ const __dirname = path.dirname(__filename)
 const visited = new Set<string>()
 const ordered: string[] = []
 
+// Config object filled when merge() is called
+let currentConfig: MergeConfig = {}
+
+// ------------------------------------------------------------
+// Types
+// ------------------------------------------------------------
+
+interface MergeConfig {
+    skipFiles?: (filePath: string) => boolean
+    entryFile?: string
+}
+
+type MergeArg = string | MergeConfig | undefined
+
+interface Decl {
+    name: string
+    kind: string
+    file: string
+}
+
+// ------------------------------------------------------------
+// Resolve files and imports
+// ------------------------------------------------------------
+
 function resolveFile(filePath: string) {
     if (visited.has(filePath)) return
+
+    // Skip rule
+    if (currentConfig.skipFiles && currentConfig.skipFiles(filePath)) {
+        visited.add(filePath)
+        return
+    }
+
     visited.add(filePath)
 
     if (!fs.existsSync(filePath)) {
@@ -27,9 +58,7 @@ function resolveFile(filePath: string) {
     while ((match = importRegex.exec(code))) {
         const importPath = match[2]
         const resolved = resolveImport(filePath, importPath)
-        if (resolved) {
-            resolveFile(resolved)
-        }
+        if (resolved) resolveFile(resolved)
     }
 
     ordered.push(filePath)
@@ -61,17 +90,10 @@ function resolveImport(baseFile: string, reqPath: string) {
     return null
 }
 
-// ----------------------------
-// TOP-LEVEL DECLARATION PARSE
-// ----------------------------
+// ------------------------------------------------------------
+// Top-level declarations
+// ------------------------------------------------------------
 
-interface Decl {
-    name: string
-    kind: string
-    file: string
-}
-
-// --- CHANGE: improved regex, supports "export abstract class"
 const declRegex =
     /^\s*(export\s+)?(abstract\s+)?(class|interface|enum|type|const|let|var)\s+([A-Za-z0-9_]+)/
 
@@ -91,7 +113,6 @@ function findTopLevelDecls(file: string): Decl[] {
 
         const m = line.match(declRegex)
         if (m) {
-            // --- CHANGE: kind at m[3], name at m[4]
             const kind = m[3]
             const name = m[4]
             decls.push({ name, kind, file })
@@ -124,30 +145,27 @@ function enforceIdentifierUniqueness(files: string[]) {
     }
 }
 
-// ----------------------------
-// INHERITANCE ORDERING
-// ----------------------------
+// ------------------------------------------------------------
+// Inheritance ordering
+// ------------------------------------------------------------
 
-function buildClassMap(files: string[]): Map<string, string> {
-    const classMap = new Map<string, string>()
+const inheritRegex =
+    /(?:export\s+)?(?:abstract\s+)?class\s+([A-Za-z0-9_]+)\s+extends\s+([A-Za-z0-9_]+)/g
+
+function buildClassMap(files: string[]) {
+    const map = new Map<string, string>()
 
     for (const file of files) {
         const decls = findTopLevelDecls(file)
         for (const d of decls) {
             if (d.kind === 'class') {
-                if (!classMap.has(d.name)) {
-                    classMap.set(d.name, file)
-                }
+                if (!map.has(d.name)) map.set(d.name, file)
             }
         }
     }
 
-    return classMap
+    return map
 }
-
-// --- CHANGE: improved inheritance regex, handles "export abstract class"
-const inheritRegex =
-    /(?:export\s+)?(?:abstract\s+)?class\s+([A-Za-z0-9_]+)\s+extends\s+([A-Za-z0-9_]+)/g
 
 function computeInheritanceOrder(files: string[]): string[] {
     if (files.length <= 1) return files.slice()
@@ -202,7 +220,7 @@ function computeInheritanceOrder(files: string[]): string[] {
 
     if (result.length !== files.length) {
         console.warn('')
-        console.warn('WARNING: Inheritance cycle detected. Falling back to import order.')
+        console.warn('WARNING: Inheritance cycle detected. Using import order.')
         console.warn('')
         return files.slice()
     }
@@ -210,22 +228,34 @@ function computeInheritanceOrder(files: string[]): string[] {
     return result
 }
 
-// ----------------------------
-// MERGE OUTPUT
-// ----------------------------
+// ------------------------------------------------------------
+// Merge output
+// ------------------------------------------------------------
 
-export default function merge(entryFileInput?: string) {
-    const entryFile =
-        entryFileInput ?? path.resolve(process.cwd(), 'src/main.ts')
+export default function merge(arg?: MergeArg) {
+    visited.clear()
+    ordered.length = 0
 
-    const absEntry = path.resolve(entryFile)
-    resolveFile(absEntry)
+    let entryFilePath: string
 
-    const importOrdered = ordered.slice()
+    if (typeof arg === 'string') {
+        currentConfig = {}
+        entryFilePath = path.resolve(process.cwd(), arg)
+    } else {
+        const opts = arg || {}
+        currentConfig = {
+            skipFiles: opts.skipFiles,
+        }
+        const entry =
+            opts.entryFile ?? path.resolve(process.cwd(), 'src/main.ts')
+        entryFilePath = path.resolve(entry)
+    }
 
-    enforceIdentifierUniqueness(importOrdered)
+    resolveFile(entryFilePath)
 
-    const finalOrdered = computeInheritanceOrder(importOrdered)
+    enforceIdentifierUniqueness(ordered)
+
+    const finalOrdered = computeInheritanceOrder(ordered)
 
     let output = ''
 
@@ -234,39 +264,31 @@ export default function merge(entryFileInput?: string) {
     for (const file of finalOrdered) {
         let code = fs.readFileSync(file, 'utf8')
 
-        // --- CHANGE: namespace auto-resolve
-        // Convert: export import X = Namespace.X;
-        // Into:    export const X = Namespace.X;
+        // Convert "export import X = Y.X" syntax
         code = code.replace(
             /^\s*export\s+import\s+([A-Za-z0-9_]+)\s*=\s*([^;]+);?/gm,
             'export const $1 = $2;'
         )
 
-        // --- CHANGE: Strip only NON-namespace imports
-        // Keep: import * as X from "..."
-        // Remove: import X from "...", import {A} from "...", import type ...
-        code = code.replace(
-            /^import\s+type\s+.*?;?$/gm,
-            ''
-        )
+        // Remove type imports
+        code = code.replace(/^import\s+type\s+.*?;?$/gm, '')
 
+        // Remove non-namespace imports
         code = code.replace(
             /^import\s+(?!\*\s+as\s+[A-Za-z0-9_]+\s+from)[\s\S]*?from\s+['"][^'"]+['"]\s*;?$/gm,
             ''
         )
 
-        code = code.replace(
-            /^import\s+['"][^'"]+['"]\s*;?$/gm,
-            ''
-        )
+        // Remove bare imports
+        code = code.replace(/^import\s+['"][^'"]+['"]\s*;?$/gm, '')
 
-        // Remove export statements except ones we want to keep
+        // Remove export junk
         code = code
             .replace(/^\s*export\s*{[^}]+};?\s*$/gm, '')
             .replace(/^\s*export\s+\*.*$/gm, '')
             .replace(/^\s*export\s+default\s+.*$/gm, '')
 
-        code = code.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+        code = code.replace(/\r\n/g, '\n')
         code = code.replace(/[ \t]+$/gm, '')
 
         output +=

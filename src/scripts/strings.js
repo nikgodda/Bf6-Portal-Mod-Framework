@@ -261,5 +261,3 @@ export default function run() {
         console.log(`${C.cyan}Strings already up to date.${C.reset}`)
     }
 }
-
-run()

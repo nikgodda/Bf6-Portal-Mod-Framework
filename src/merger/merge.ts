@@ -62,7 +62,7 @@ function resolveImport(baseFile: string, reqPath: string) {
 }
 
 // ----------------------------
-// TOP-LEVEL DUPLICATE CHECK
+// TOP-LEVEL DECLARATION PARSE
 // ----------------------------
 
 interface Decl {
@@ -70,6 +70,10 @@ interface Decl {
     kind: string
     file: string
 }
+
+// --- CHANGE: improved regex, supports "export abstract class"
+const declRegex =
+    /^\s*(export\s+)?(abstract\s+)?(class|interface|enum|type|const|let|var)\s+([A-Za-z0-9_]+)/
 
 function findTopLevelDecls(file: string): Decl[] {
     const code = fs.readFileSync(file, 'utf8')
@@ -80,17 +84,16 @@ function findTopLevelDecls(file: string): Decl[] {
     for (let line of lines) {
         const opens = (line.match(/{/g) || []).length
         const closes = (line.match(/}/g) || []).length
+        const depthAtStart = depth
         depth += opens - closes
 
-        if (depth !== 0) continue
+        if (depthAtStart !== 0) continue
 
-        const reg =
-            /^\s*(export\s+)?(class|interface|enum|type|const|let|var)\s+([A-Za-z0-9_]+)/
-
-        const m = line.match(reg)
+        const m = line.match(declRegex)
         if (m) {
-            const kind = m[2]
-            const name = m[3]
+            // --- CHANGE: kind at m[3], name at m[4]
+            const kind = m[3]
+            const name = m[4]
             decls.push({ name, kind, file })
         }
     }
@@ -125,7 +128,7 @@ function enforceIdentifierUniqueness(files: string[]) {
 // INHERITANCE ORDERING
 // ----------------------------
 
-// Build map: class name -> file that declares it
+// Build map: class name -> file
 function buildClassMap(files: string[]): Map<string, string> {
     const classMap = new Map<string, string>()
 
@@ -143,13 +146,16 @@ function buildClassMap(files: string[]): Map<string, string> {
     return classMap
 }
 
-// Compute file order so that base classes appear before derived classes
+// --- CHANGE: improved inheritance regex, handles "export abstract class"
+const inheritRegex =
+    /(?:export\s+)?(?:abstract\s+)?class\s+([A-Za-z0-9_]+)\s+extends\s+([A-Za-z0-9_]+)/g
+
 function computeInheritanceOrder(files: string[]): string[] {
     if (files.length <= 1) return files.slice()
 
     const classMap = buildClassMap(files)
 
-    // Graph: baseFile -> set of derived files
+    // Graph: baseFile -> derivedFiles
     const edges = new Map<string, Set<string>>()
     const inDegree = new Map<string, number>()
 
@@ -161,14 +167,13 @@ function computeInheritanceOrder(files: string[]): string[] {
     // Scan for "class Child extends Parent"
     for (const file of files) {
         const code = fs.readFileSync(file, 'utf8')
-        const regex = /class\s+([A-Za-z0-9_]+)\s+extends\s+([A-Za-z0-9_]+)/g
         let m: RegExpExecArray | null
 
-        while ((m = regex.exec(code))) {
-            const childName = m[1]
-            const parentName = m[2]
-            const parentFile = classMap.get(parentName)
+        while ((m = inheritRegex.exec(code))) {
+            const child = m[1]
+            const parent = m[2]
 
+            const parentFile = classMap.get(parent)
             if (!parentFile) continue
             if (parentFile === file) continue
 
@@ -180,12 +185,10 @@ function computeInheritanceOrder(files: string[]): string[] {
         }
     }
 
-    // Kahn topological sort, preserving original file order where possible
+    // Kahn topological sort, stable order
     const queue: string[] = []
     for (const f of files) {
-        if ((inDegree.get(f) || 0) === 0) {
-            queue.push(f)
-        }
+        if ((inDegree.get(f) || 0) === 0) queue.push(f)
     }
 
     const result: string[] = []
@@ -193,23 +196,19 @@ function computeInheritanceOrder(files: string[]): string[] {
         const f = queue.shift()!
         result.push(f)
 
-        const nextSet = edges.get(f)
-        if (!nextSet) continue
-
-        for (const next of nextSet) {
-            const deg = (inDegree.get(next) || 0) - 1
-            inDegree.set(next, deg)
-            if (deg === 0) {
-                queue.push(next)
-            }
+        const nextSet = edges.get(f)!
+        for (const nxt of nextSet) {
+            const deg = (inDegree.get(nxt) || 0) - 1
+            inDegree.set(nxt, deg)
+            if (deg === 0) queue.push(nxt)
         }
     }
 
-    // If cycle detected in inheritance, fall back to original order
     if (result.length !== files.length) {
         console.warn('')
-        console.warn('WARNING: Inheritance cycle detected between classes.')
-        console.warn('Falling back to import-based file order.')
+        console.warn(
+            'WARNING: Inheritance cycle detected. Falling back to import order.'
+        )
         console.warn('')
         return files.slice()
     }

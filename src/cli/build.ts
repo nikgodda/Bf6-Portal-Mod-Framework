@@ -23,7 +23,7 @@ async function loadMerge() {
 
         if (!mergeFn) {
             console.error(
-                `${C.magenta}ERROR:${C.reset} merge.js does not export a merge function`
+                `${C.magenta}ERROR:${C.reset} merge.js does not export a merge() function`
             )
             return null
         }
@@ -42,18 +42,33 @@ export default async function run(args: string[]) {
     const cmd = args[0]
 
     // --------------------------------------------------
-    // build  → merge + strings
+    // build → merge + strings
     // --------------------------------------------------
     if (cmd === 'build') {
+        console.log(`${C.cyan}Building...${C.reset}\n`)
+
         const mergeFn = await loadMerge()
         if (!mergeFn) return
 
-        console.log(`${C.cyan}Building...${C.reset}`)
         await mergeFn()
 
-        // Auto-run strings.js after merge
+        console.log(`${C.green}__SCRIPT.ts generated successfully${C.reset}`)
+
+        // run strings.js
         const stringsMod: any = await import('../scripts/strings.js')
-        if (stringsMod?.default) await stringsMod.default()
+        const stringsChanged = stringsMod?.default
+            ? await stringsMod.default()
+            : false
+
+        if (stringsChanged) {
+            console.log(
+                `${C.green}__STRINGS.json updated successfully${C.reset}\n`
+            )
+        } else {
+            console.log(
+                `${C.cyan}__STRINGS.json already up to date${C.reset}\n`
+            )
+        }
 
         console.log(`${C.green}Build complete.${C.reset}`)
         return
@@ -64,12 +79,12 @@ export default async function run(args: string[]) {
     // --------------------------------------------------
     if (cmd === 'update-sdk') {
         console.log(`${C.cyan}Updating SDK...${C.reset}`)
-        await import('../scripts/update-sdk.js') // auto-runs on import
+        await import('../scripts/update-sdk.js')
         return
     }
 
     // --------------------------------------------------
-    // watch  → merge only, no strings (recommended)
+    // watch → merge only, no strings
     // --------------------------------------------------
     if (cmd === 'watch') {
         const projectSrc = path.join(process.cwd(), 'src')

@@ -112,7 +112,7 @@ function extractArrayValues(content) {
 function extractKeyRefs(content) {
     const refs = []
 
-    // Static
+    // -------- Static messages --------
     const staticMsg =
         /mod\.Message\s*\(\s*(['"`])([^"'`]+)\1\s*(?:,([^)]*))?\)/g
     let m
@@ -126,6 +126,7 @@ function extractKeyRefs(content) {
         })
     }
 
+    // -------- Static stringkeys --------
     const staticSK = /mod\.stringkeys\.([A-Za-z0-9_$.]+)/g
     while ((m = staticSK.exec(content)) !== null) {
         refs.push({
@@ -135,7 +136,7 @@ function extractKeyRefs(content) {
         })
     }
 
-    // Dynamic
+    // -------- Dynamic messages --------
     const dynamicMsg =
         /mod\.Message\s*\(\s*`([A-Za-z0-9_]+)\.\$\{([^}]+)\}`\s*(?:,([^)]*))?\)/g
     while ((m = dynamicMsg.exec(content)) !== null) {
@@ -163,14 +164,16 @@ function updateKey(fullKey, paramCount, strings) {
 
     let value = parent[leaf]
 
+    // New key
     if (value === undefined) {
         value = fullKey
         if (paramCount > 0) value += ' ' + '{}'.repeat(paramCount)
         parent[leaf] = value
-        console.log(`${C.green}Added:${C.reset} ${fullKey}`)
+        console.log(`${C.yellow}Added:${C.reset} ${fullKey}`)
         return true
     }
 
+    // Add missing placeholders
     const existingPH = countPlaceholders(value)
     if (existingPH < paramCount) {
         parent[leaf] = value + ' ' + '{}'.repeat(paramCount - existingPH)
@@ -195,7 +198,7 @@ export default function run() {
 
     let changed = false
 
-    // Dynamic keys
+    // -------- Dynamic keys --------
     for (const ref of refs) {
         if (!ref.isDynamic) continue
 
@@ -243,12 +246,13 @@ export default function run() {
         )
     }
 
-    // Static keys
+    // -------- Static keys --------
     for (const ref of refs) {
         if (ref.isDynamic) continue
         changed = updateKey(ref.key, ref.paramCount, strings) || changed
     }
 
+    // -------- Write & return summary status --------
     if (changed) {
         fs.writeFileSync(
             OUTFILE,
@@ -256,8 +260,8 @@ export default function run() {
             'utf8'
         )
         console.log(`${C.blue}Upload __STRINGS.json to Portal UI.${C.reset}`)
-        console.log(`${C.green}Updated __STRINGS.json${C.reset}`)
-    } else {
-        console.log(`${C.cyan}Strings already up to date.${C.reset}`)
+        return true
     }
+
+    return false
 }

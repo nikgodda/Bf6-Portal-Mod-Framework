@@ -1,18 +1,9 @@
 import fs from 'fs'
 import path from 'path'
 
-interface MergeOptions {
-    entryFile: string
-    skipFiles?: (file: string) => boolean
-    namespace?: string
-}
-
 const visited = new Set<string>()
 const ordered: string[] = []
 
-// ------------------------------------------------------------
-// Resolve imports
-// ------------------------------------------------------------
 function resolveImport(baseFile: string, reqPath: string): string | null {
     const baseDir = path.dirname(baseFile)
 
@@ -29,6 +20,7 @@ function resolveImport(baseFile: string, reqPath: string): string | null {
         abs + '.tsx',
         abs + '.js',
         path.join(abs, 'index.ts'),
+        path.join(abs, 'index.tsx'),
     ]
 
     for (const c of candidates) {
@@ -38,127 +30,128 @@ function resolveImport(baseFile: string, reqPath: string): string | null {
     return null
 }
 
-// ------------------------------------------------------------
-// DFS + skip system
-// ------------------------------------------------------------
-function resolveFile(filePath: string, skip: (f: string) => boolean) {
+function resolveFile(filePath: string) {
     if (visited.has(filePath)) return
-    if (skip(filePath)) return
-
     visited.add(filePath)
+
+    if (!fs.existsSync(filePath)) {
+        console.error('File not found: ' + filePath)
+        process.exit(1)
+    }
 
     const code = fs.readFileSync(filePath, 'utf8')
 
     const importRegex =
-        /import\s+(?:type\s+)?(?:[\s\S]*?)?from\s+["'](\.\/.*?|\.{2}\/.*?|src\/.*?)["'];?/g
+        /import\s+(?:[\s\S]*?)?from\s+["'](\.\/.*?|\.{2}\/.*?|src\/.*?)["'];?/g
 
     let match
     while ((match = importRegex.exec(code))) {
         const importPath = match[1]
         const resolved = resolveImport(filePath, importPath)
-        if (resolved) resolveFile(resolved, skip)
+        if (resolved) resolveFile(resolved)
     }
 
     ordered.push(filePath)
 }
 
-// ------------------------------------------------------------
-// Collect modules by folder (Entities, UI, AI, Types, etc.)
-// ------------------------------------------------------------
-function collectModules(): Record<string, string[]> {
-    const groups: Record<string, string[]> = {}
+// ----------------------------
+// TOP-LEVEL DUPLICATE CHECK
+// ----------------------------
+interface Decl {
+    name: string
+    kind: string
+    file: string
+}
 
-    for (const file of ordered) {
-        const rel = path.relative(process.cwd(), file).replace(/\\/g, '/')
+function findTopLevelDecls(file: string): Decl[] {
+    const code = fs.readFileSync(file, 'utf8')
+    const lines = code.split(/\r?\n/)
+    const decls: Decl[] = []
+    let depth = 0
 
-        // Match "src/<folder>/<file>.ts"
-        const parts = rel.split('/')
-        if (parts.length >= 3 && parts[0] === 'src') {
-            const folder = parts[1]
-            const fileName = parts[2].replace(/\..*$/, '') // remove extension
+    for (let line of lines) {
+        const opens = (line.match(/{/g) || []).length
+        const closes = (line.match(/}/g) || []).length
+        depth += opens - closes
 
-            if (!groups[folder]) groups[folder] = []
-            groups[folder].push(fileName)
+        if (depth !== 0) continue
+
+        const reg =
+            /^\s*(export\s+)?(class|interface|enum|type|const|let|var)\s+([A-Za-z0-9_]+)/
+
+        const m = line.match(reg)
+        if (m) {
+            const kind = m[2]
+            const name = m[3]
+            decls.push({ name, kind, file })
         }
     }
 
-    return groups
+    return decls
 }
 
-// ------------------------------------------------------------
-// Runtime namespace generator (recommended, real object)
-// ------------------------------------------------------------
-function generateRuntimeNamespace(
-    groups: Record<string, string[]>,
-    rootNS: string
-): string {
-    let out = `// ----- AUTO-GENERATED PORTAL NAMESPACE -----\n`
-    out += `export const ${rootNS} = {\n`
+function enforceIdentifierUniqueness(files: string[]) {
+    const map = new Map<string, Decl>()
 
-    for (const folder of Object.keys(groups)) {
-        const sub = capitalize(folder)
-        out += `  ${sub}: {\n`
-
-        for (const file of groups[folder]) {
-            const moduleName = capitalize(file)
-            const symbolName = capitalize(file)
-
-            // Example output:
-            // AreaTrigger: AreaTriggerModule.AreaTrigger,
-            out += `    ${symbolName}: ${moduleName}Module.${symbolName},\n`
+    for (const file of files) {
+        const decls = findTopLevelDecls(file)
+        for (const d of decls) {
+            if (map.has(d.name)) {
+                const a = map.get(d.name)!
+                console.error('')
+                console.error('MERGE ERROR: Duplicate top-level identifier!')
+                console.error('Identifier: ' + d.name)
+                console.error('Kind:       ' + d.kind)
+                console.error('')
+                console.error('First found in: ' + a.file)
+                console.error('Found again in: ' + d.file)
+                console.error('')
+                process.exit(1)
+            }
+            map.set(d.name, d)
         }
-
-        out += `  },\n`
     }
-
-    out += `} as const;\n\n`
-    return out
 }
 
-function capitalize(str: string): string {
-    return str[0].toUpperCase() + str.slice(1)
-}
+// ----------------------------
+// MAIN MERGE
+// ----------------------------
+export default function merge(entryFileInput?: string) {
+    const entryFile =
+        entryFileInput ?? path.resolve(process.cwd(), 'src/main.ts')
 
-// ------------------------------------------------------------
-// Strip imports
-// ------------------------------------------------------------
-function stripImports(code: string): string {
-    code = code.replace(/^\s*import[\s\S]*?from\s+['"][^'"]+['"]\s*;?/gm, '')
-    code = code.replace(/^\s*export\s+import\s+.*?;/gm, '')
-    return code
-}
+    resolveFile(entryFile)
 
-// ------------------------------------------------------------
-// MAIN MERGE FUNCTION
-// ------------------------------------------------------------
-export default function merge(options: MergeOptions) {
-    const skip = options.skipFiles ?? (() => false)
-    const namespace = options.namespace ?? 'Portal'
-
-    resolveFile(options.entryFile, skip)
+    enforceIdentifierUniqueness(ordered)
 
     let output = ''
-    output += `import * as modlib from 'modlib'\n\n`
 
-    const groups = collectModules()
-    const nsBlock = generateRuntimeNamespace(groups, namespace)
+    output += "import * as modlib from 'modlib'\n\n"
 
     for (const file of ordered) {
         let code = fs.readFileSync(file, 'utf8')
 
-        code = stripImports(code)
+        // Strip all imports
+        code = code.replace(/import[\s\S]*?from\s+['"][^'"]+['"]\s*;?/g, '')
+
+        // Remove export stars / reexports
+        code = code
+            .replace(/^\s*export\s*{[^}]+};?\s*$/gm, '')
+            .replace(/^\s*export\s+\*.*$/gm, '')
+            .replace(/^\s*export\s+default\s+.*$/gm, '')
+
         code = code.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
         code = code.replace(/[ \t]+$/gm, '')
 
-        output += `// -------- FILE: ${path.relative(
-            process.cwd(),
-            file
-        )} --------\n`
+        output +=
+            '// -------- FILE: ' +
+            path.relative(process.cwd(), file) +
+            ' --------\n'
         output += code.trim() + '\n\n'
     }
 
-    output += nsBlock
+    const outputPath = path.resolve(process.cwd(), '__MERGED.ts')
+    fs.writeFileSync(outputPath, output, 'utf8')
 
-    fs.writeFileSync('__MERGED.ts', output, 'utf8')
-    console.log('__MERGED.ts generated successfully')
+    console.log('\n__MERGED.ts generated successfully\n')
 }

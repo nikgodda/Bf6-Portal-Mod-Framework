@@ -84,11 +84,10 @@ function findTopLevelDecls(file: string): Decl[] {
     for (let line of lines) {
         const opens = (line.match(/{/g) || []).length
         const closes = (line.match(/}/g) || []).length
-        const depthAtStart = depth
+        const depthBefore = depth
         depth += opens - closes
 
-        // only consider real top-level
-        if (depthAtStart !== 0) continue
+        if (depthBefore !== 0) continue
 
         const m = line.match(declRegex)
         if (m) {
@@ -125,7 +124,7 @@ function enforceIdentifierUniqueness(files: string[]) {
 }
 
 // ------------------------------------------------------------
-// Inheritance ordering: parent classes before children
+// Inheritance ordering
 // ------------------------------------------------------------
 function buildClassMap(files: string[]): Map<string, string> {
     const map = new Map<string, string>()
@@ -133,9 +132,7 @@ function buildClassMap(files: string[]): Map<string, string> {
     for (const file of files) {
         const decls = findTopLevelDecls(file)
         for (const d of decls) {
-            if (d.kind === 'class' && !map.has(d.name)) {
-                map.set(d.name, file)
-            }
+            if (d.kind === 'class' && !map.has(d.name)) map.set(d.name, file)
         }
     }
 
@@ -146,7 +143,6 @@ function computeInheritanceOrder(files: string[]): string[] {
     if (files.length <= 1) return files.slice()
 
     const classMap = buildClassMap(files)
-
     const edges = new Map<string, Set<string>>()
     const inDegree = new Map<string, number>()
 
@@ -184,9 +180,7 @@ function computeInheritanceOrder(files: string[]): string[] {
     while (queue.length > 0) {
         const f = queue.shift()!
         result.push(f)
-
-        const nextSet = edges.get(f)!
-        for (const nxt of nextSet) {
+        for (const nxt of edges.get(f)!) {
             const deg = (inDegree.get(nxt) || 0) - 1
             inDegree.set(nxt, deg)
             if (deg === 0) queue.push(nxt)
@@ -195,7 +189,9 @@ function computeInheritanceOrder(files: string[]): string[] {
 
     if (result.length !== files.length) {
         console.warn('')
-        console.warn('WARNING: Inheritance cycle detected. Using import order.')
+        console.warn(
+            'WARNING: Inheritance cycle detected — falling back to DFS order.'
+        )
         console.warn('')
         return files.slice()
     }
@@ -204,7 +200,7 @@ function computeInheritanceOrder(files: string[]): string[] {
 }
 
 // ------------------------------------------------------------
-// MAIN MERGE
+// MAIN MERGE FUNCTION
 // ------------------------------------------------------------
 export default function merge(entryFileInput?: string) {
     visited.clear()
@@ -217,22 +213,27 @@ export default function merge(entryFileInput?: string) {
 
     enforceIdentifierUniqueness(ordered)
 
-    const finalOrdered = computeInheritanceOrder(ordered)
+    // 1. Sort by inheritance
+    let finalOrdered = computeInheritanceOrder(ordered)
 
+    // 2. Always force entry file LAST
+    const entryAbs = path.resolve(entryFile)
+    finalOrdered = finalOrdered.filter((f) => path.resolve(f) !== entryAbs)
+    finalOrdered.push(entryAbs)
+
+    // ----------------------------------------------------------
+    // Merge code
+    // ----------------------------------------------------------
     let output = ''
-
     output += "import * as modlib from 'modlib'\n\n"
 
     for (const file of finalOrdered) {
         let code = fs.readFileSync(file, 'utf8')
 
-        // Keep it simple: strip all imports
         code = code.replace(
             /^\s*import[\s\S]*?from\s+['"][^'"]+['"]\s*;?/gm,
             ''
         )
-
-        // Drop export stars / reexports / export default lines
         code = code
             .replace(/^\s*export\s*{[^}]+};?\s*$/gm, '')
             .replace(/^\s*export\s+\*.*$/gm, '')
@@ -248,8 +249,6 @@ export default function merge(entryFileInput?: string) {
         output += code.trim() + '\n\n'
     }
 
-    const outputPath = path.resolve(process.cwd(), '__MERGED.ts')
-    fs.writeFileSync(outputPath, output, 'utf8')
-
+    fs.writeFileSync('__MERGED.ts', output, 'utf8')
     console.log('\n__MERGED.ts generated successfully\n')
 }

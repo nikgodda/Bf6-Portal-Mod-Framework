@@ -4,6 +4,24 @@ import path from 'path'
 const visited = new Set<string>()
 const ordered: string[] = []
 
+// ------------------------------------------------------------
+// Types
+// ------------------------------------------------------------
+interface Decl {
+    name: string
+    kind: string
+    file: string
+}
+
+const declRegex =
+    /^\s*(export\s+)?(abstract\s+)?(class|interface|enum|type|const|let|var)\s+([A-Za-z0-9_]+)/
+
+const inheritRegex =
+    /(?:export\s+)?(?:abstract\s+)?class\s+([A-Za-z0-9_]+)\s+extends\s+([A-Za-z0-9_]+)/g
+
+// ------------------------------------------------------------
+// Import resolution
+// ------------------------------------------------------------
 function resolveImport(baseFile: string, reqPath: string): string | null {
     const baseDir = path.dirname(baseFile)
 
@@ -54,15 +72,9 @@ function resolveFile(filePath: string) {
     ordered.push(filePath)
 }
 
-// ----------------------------
-// TOP-LEVEL DUPLICATE CHECK
-// ----------------------------
-interface Decl {
-    name: string
-    kind: string
-    file: string
-}
-
+// ------------------------------------------------------------
+// Top-level declarations
+// ------------------------------------------------------------
 function findTopLevelDecls(file: string): Decl[] {
     const code = fs.readFileSync(file, 'utf8')
     const lines = code.split(/\r?\n/)
@@ -72,17 +84,16 @@ function findTopLevelDecls(file: string): Decl[] {
     for (let line of lines) {
         const opens = (line.match(/{/g) || []).length
         const closes = (line.match(/}/g) || []).length
+        const depthAtStart = depth
         depth += opens - closes
 
-        if (depth !== 0) continue
+        // only consider real top-level
+        if (depthAtStart !== 0) continue
 
-        const reg =
-            /^\s*(export\s+)?(class|interface|enum|type|const|let|var)\s+([A-Za-z0-9_]+)/
-
-        const m = line.match(reg)
+        const m = line.match(declRegex)
         if (m) {
-            const kind = m[2]
-            const name = m[3]
+            const kind = m[3]
+            const name = m[4]
             decls.push({ name, kind, file })
         }
     }
@@ -113,28 +124,115 @@ function enforceIdentifierUniqueness(files: string[]) {
     }
 }
 
-// ----------------------------
+// ------------------------------------------------------------
+// Inheritance ordering: parent classes before children
+// ------------------------------------------------------------
+function buildClassMap(files: string[]): Map<string, string> {
+    const map = new Map<string, string>()
+
+    for (const file of files) {
+        const decls = findTopLevelDecls(file)
+        for (const d of decls) {
+            if (d.kind === 'class' && !map.has(d.name)) {
+                map.set(d.name, file)
+            }
+        }
+    }
+
+    return map
+}
+
+function computeInheritanceOrder(files: string[]): string[] {
+    if (files.length <= 1) return files.slice()
+
+    const classMap = buildClassMap(files)
+
+    const edges = new Map<string, Set<string>>()
+    const inDegree = new Map<string, number>()
+
+    for (const f of files) {
+        edges.set(f, new Set())
+        inDegree.set(f, 0)
+    }
+
+    for (const file of files) {
+        const code = fs.readFileSync(file, 'utf8')
+        let m: RegExpExecArray | null
+
+        while ((m = inheritRegex.exec(code))) {
+            const child = m[1]
+            const parent = m[2]
+
+            const parentFile = classMap.get(parent)
+            if (!parentFile) continue
+            if (parentFile === file) continue
+
+            const set = edges.get(parentFile)!
+            if (!set.has(file)) {
+                set.add(file)
+                inDegree.set(file, (inDegree.get(file) || 0) + 1)
+            }
+        }
+    }
+
+    const queue: string[] = []
+    for (const f of files) {
+        if ((inDegree.get(f) || 0) === 0) queue.push(f)
+    }
+
+    const result: string[] = []
+    while (queue.length > 0) {
+        const f = queue.shift()!
+        result.push(f)
+
+        const nextSet = edges.get(f)!
+        for (const nxt of nextSet) {
+            const deg = (inDegree.get(nxt) || 0) - 1
+            inDegree.set(nxt, deg)
+            if (deg === 0) queue.push(nxt)
+        }
+    }
+
+    if (result.length !== files.length) {
+        console.warn('')
+        console.warn('WARNING: Inheritance cycle detected. Using import order.')
+        console.warn('')
+        return files.slice()
+    }
+
+    return result
+}
+
+// ------------------------------------------------------------
 // MAIN MERGE
-// ----------------------------
+// ------------------------------------------------------------
 export default function merge(entryFileInput?: string) {
+    visited.clear()
+    ordered.length = 0
+
     const entryFile =
         entryFileInput ?? path.resolve(process.cwd(), 'src/main.ts')
 
-    resolveFile(entryFile)
+    resolveFile(path.resolve(entryFile))
 
     enforceIdentifierUniqueness(ordered)
+
+    const finalOrdered = computeInheritanceOrder(ordered)
 
     let output = ''
 
     output += "import * as modlib from 'modlib'\n\n"
 
-    for (const file of ordered) {
+    for (const file of finalOrdered) {
         let code = fs.readFileSync(file, 'utf8')
 
-        // Strip all imports
-        code = code.replace(/import[\s\S]*?from\s+['"][^'"]+['"]\s*;?/g, '')
+        // Keep it simple: strip all imports
+        code = code.replace(
+            /^\s*import[\s\S]*?from\s+['"][^'"]+['"]\s*;?/gm,
+            ''
+        )
 
-        // Remove export stars / reexports
+        // Drop export stars / reexports / export default lines
         code = code
             .replace(/^\s*export\s*{[^}]+};?\s*$/gm, '')
             .replace(/^\s*export\s+\*.*$/gm, '')

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
-const path = require('path')
-const fs = require('fs')
+import path from 'path'
+import merge from '../dist/merger/merge.js'
 
 async function main() {
     const args = process.argv.slice(2)
@@ -16,30 +16,20 @@ async function main() {
     const projectDir = process.cwd()
 
     if (cmd === 'build') {
-        // Try to load config
-        let config = {}
-        const configPath = path.join(projectDir, 'bf6mod.config.js')
-        if (fs.existsSync(configPath)) {
-            console.log('Loaded bf6mod.config.js')
-            config = require(configPath)
-        }
-
-        const merge = require('../dist/merger/merge.js').default
-
-        merge(path.join(projectDir, 'src', 'main.ts'))
-
+        const entryFile = path.join(projectDir, 'src', 'main.ts')
+        merge(entryFile)
         console.log('Build complete.')
         return
     }
 
     if (cmd === 'watch') {
-        const { watchProject } = require('../dist/commands/watch.js')
+        const { watchProject } = await import('../dist/commands/watch.js')
         await watchProject()
         return
     }
 
     if (cmd === 'update-sdk') {
-        const { updateSDK } = require('../dist/scripts/update-sdk.js')
+        const { updateSDK } = await import('../dist/scripts/update-sdk.js')
         await updateSDK()
         return
     }

@@ -166,6 +166,4 @@ export default function merge(entryFileInput) {
 
     const outputPath = path.resolve(process.cwd(), '__SCRIPT.ts')
     fs.writeFileSync(outputPath, output, 'utf8')
-
-    console.log(`\n${C.green}__SCRIPT.ts generated successfully${C.reset}\n`)
 }

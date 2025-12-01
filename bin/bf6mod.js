@@ -1,25 +1,11 @@
 #!/usr/bin/env node
 
-// ------------------------------------------------------------
-// CLI argument parsing for skip option
-// Example: bf6mod build --skip=index.ts,ui/index.ts
-// ------------------------------------------------------------
-const rawArgs = process.argv.slice(2)
-const skipArg = rawArgs.find((a) => a.startsWith('--skip='))
-
-let skipList = []
-if (skipArg) {
-    skipList = skipArg
-        .replace('--skip=', '')
-        .split(',')
-        .map((x) => x.trim())
-}
-
-// Import build command from compiled dist folder
-const { default: buildProject } = await import('../dist/commands/build.js')
+import path from 'path'
+import merge from '../dist/merger/merge.js'
+import fs from 'fs'
 
 async function main() {
-    const args = rawArgs.filter((a) => !a.startsWith('--skip='))
+    const args = process.argv.slice(2)
     const cmd = args[0]
 
     if (!cmd) {
@@ -28,25 +14,40 @@ async function main() {
         return
     }
 
-    if (cmd === 'build') {
-        const projectDir = process.cwd()
+    const projectDir = process.cwd()
 
-        await buildProject(projectDir, (filePath) => {
-            if (skipList.length === 0) return false
-            return skipList.some((skip) => filePath.endsWith(skip))
+    if (cmd === 'build') {
+        // Load config
+        const configPath = path.join(projectDir, 'bf6mod.config.js')
+        let skipList = []
+
+        if (fs.existsSync(configPath)) {
+            try {
+                const cfg = (await import(configPath)).default
+                skipList = cfg.skip ?? []
+                console.log('Loaded bf6mod.config.js')
+            } catch (err) {
+                console.warn('Warning: Could not load bf6mod.config.js', err)
+            }
+        }
+
+        merge({
+            entryFile: path.join(projectDir, 'src', 'main.ts'),
+            skipFiles: (file) => skipList.some((s) => file.endsWith(s)),
         })
 
+        console.log('Build complete.')
         return
     }
 
     if (cmd === 'watch') {
-        const { watchProject } = require('../dist/commands/watch.js')
+        const { watchProject } = await import('../dist/commands/watch.js')
         await watchProject()
         return
     }
 
     if (cmd === 'update-sdk') {
-        const { updateSDK } = require('../dist/scripts/update-sdk.js')
+        const { updateSDK } = await import('../dist/scripts/update-sdk.js')
         await updateSDK()
         return
     }

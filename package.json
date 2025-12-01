@@ -13,11 +13,11 @@
             "prepublishOnly": "npm run build",
             "update-sdk": "ts-node src/scripts/update-sdk.ts"
       },
-      "devDependencies": {
-            "ts-node": "^10.9.1"
-      },
       "dependencies": {
-            "chokidar": "^4.0.3",
-            "typescript": "^5.0.0"
+            "chokidar": "^4.0.3"
+      },
+      "devDependencies": {
+            "typescript": "^5.0.0",
+            "ts-node": "^10.9.1"
       }
 }

@@ -31,13 +31,10 @@ async function main() {
     if (cmd === 'build') {
         const projectDir = process.cwd()
 
-        await buildProject(
-            projectDir,
-            (filePath) => {
-                if (skipList.length === 0) return false
-                return skipList.some((skip) => filePath.endsWith(skip))
-            }
-        )
+        await buildProject(projectDir, (filePath) => {
+            if (skipList.length === 0) return false
+            return skipList.some((skip) => filePath.endsWith(skip))
+        })
 
         return
     }
@@ -60,4 +57,4 @@ async function main() {
 main().catch((err) => {
     console.error('Error:', err)
     process.exit(1)
-}) 
+})

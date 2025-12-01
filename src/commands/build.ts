@@ -1,4 +1,4 @@
-import merge from '../merger/merge'
+import merge from '../merger/merge.js'
 import fs from 'fs'
 import path from 'path'
 import ts from 'typescript'

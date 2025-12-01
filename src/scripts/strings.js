@@ -169,7 +169,7 @@ function updateKey(fullKey, paramCount, strings) {
         value = fullKey
         if (paramCount > 0) value += ' ' + '{}'.repeat(paramCount)
         parent[leaf] = value
-        console.log(`${C.yellow}Added:${C.reset} ${fullKey}`)
+        console.log(`${C.blue}Added:${C.reset} ${fullKey}`)
         return true
     }
 
@@ -259,7 +259,7 @@ export default function run() {
             JSON.stringify(strings, null, 2) + '\n',
             'utf8'
         )
-        console.log(`${C.blue}Upload __STRINGS.json to Portal UI.${C.reset}`)
+        console.log(`${C.yellow}Upload __STRINGS.json to Portal UI.${C.reset}`)
         return true
     }
 

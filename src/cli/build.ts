@@ -66,11 +66,11 @@ export default async function run(args: string[]) {
             )
         } else {
             console.log(
-                `${C.cyan}__STRINGS.json already up to date${C.reset}\n`
+                `${C.green}__STRINGS.json already up to date${C.reset}\n`
             )
         }
 
-        console.log(`${C.green}Build complete.${C.reset}`)
+        console.log(`${C.cyan}Build complete.${C.reset}`)
         return
     }
 

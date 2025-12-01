@@ -13,12 +13,19 @@ const C = {
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
-const visited = new Set()
-const ordered = []
+// ------------------------------------------------------------
+// NEW: create fresh merge state per run
+// ------------------------------------------------------------
+function createState() {
+    return {
+        visited: new Set(),
+        ordered: [],
+    }
+}
 
-function resolveFile(filePath) {
-    if (visited.has(filePath)) return
-    visited.add(filePath)
+function resolveFile(state, filePath) {
+    if (state.visited.has(filePath)) return
+    state.visited.add(filePath)
 
     if (!fs.existsSync(filePath)) {
         console.error('File not found: ' + filePath)
@@ -34,10 +41,10 @@ function resolveFile(filePath) {
     while ((match = importRegex.exec(code))) {
         const importPath = match[1]
         const resolved = resolveImport(filePath, importPath)
-        if (resolved) resolveFile(resolved)
+        if (resolved) resolveFile(state, resolved)
     }
 
-    ordered.push(filePath)
+    state.ordered.push(filePath)
 }
 
 function resolveImport(baseFile, reqPath) {
@@ -122,20 +129,22 @@ function enforceIdentifierUniqueness(files) {
 // ----------------------------
 
 export default function merge(entryFileInput) {
+    // NEW: fresh state every run
+    const state = createState()
+
     const entryFile =
         entryFileInput ?? path.resolve(process.cwd(), 'src/main.ts')
 
     const absEntry = path.resolve(entryFile)
-    resolveFile(absEntry)
+    resolveFile(state, absEntry)
 
-    enforceIdentifierUniqueness(ordered)
+    enforceIdentifierUniqueness(state.ordered)
 
     let output = ''
 
-    // Insert modlib import
     output += "import * as modlib from 'modlib'\n\n"
 
-    for (const file of ordered) {
+    for (const file of state.ordered) {
         let code = fs.readFileSync(file, 'utf8')
 
         code = code.replace(/import[\s\S]*?from\s+['"][^'"]+['"]\s*;?/g, '')

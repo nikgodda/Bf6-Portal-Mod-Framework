@@ -1,37 +1,61 @@
 import chokidar from 'chokidar'
 import path from 'path'
 
-// Loads merge.js from src/scripts/merge.js
-async function loadMerge() {
-    const mod: any = await import('../scripts/merge.js')
-    const mergeFn = mod.default ?? mod.merge
-
-    if (!mergeFn) {
-        console.error('ERROR: merge.js does not export a merge function')
-        return null
-    }
-
-    return mergeFn
+// --------------------------------------------------
+// Inline terminal colors
+// --------------------------------------------------
+const C = {
+    reset: '\x1b[0m',
+    green: '\x1b[32m',
+    yellow: '\x1b[33m',
+    blue: '\x1b[34m',
+    cyan: '\x1b[36m',
+    magenta: '\x1b[35m',
 }
 
-// Loads strings.js (auto-executes on import)
-async function loadStrings() {
-    await import('../scripts/strings.js')
-    return true
+// --------------------------------------------------
+// Load merge.js dynamically (ESM)
+// --------------------------------------------------
+async function loadMerge() {
+    try {
+        const mod: any = await import('../scripts/merge.js')
+        const mergeFn = mod.default ?? mod.merge
+
+        if (!mergeFn) {
+            console.error(
+                `${C.magenta}ERROR:${C.reset} merge.js does not export a merge function`
+            )
+            return null
+        }
+
+        return mergeFn
+    } catch (err) {
+        console.error(
+            `${C.magenta}ERROR:${C.reset} Failed to load merge.js`,
+            err
+        )
+        return null
+    }
 }
 
 export default async function run(args: string[]) {
     const cmd = args[0]
 
     // --------------------------------------------------
-    // build
+    // build  → merge + strings
     // --------------------------------------------------
     if (cmd === 'build') {
         const mergeFn = await loadMerge()
-        if (mergeFn) await mergeFn()
+        if (!mergeFn) return
 
-        // Strings must run after merge because it parses __SCRIPT.ts
-        await loadStrings()
+        console.log(`${C.cyan}Building...${C.reset}`)
+        await mergeFn()
+
+        // Auto-run strings.js after merge
+        const stringsMod: any = await import('../scripts/strings.js')
+        if (stringsMod?.default) await stringsMod.default()
+
+        console.log(`${C.green}Build complete.${C.reset}`)
         return
     }
 
@@ -39,29 +63,28 @@ export default async function run(args: string[]) {
     // update-sdk
     // --------------------------------------------------
     if (cmd === 'update-sdk') {
-        await import('../scripts/update-sdk.js')
+        console.log(`${C.cyan}Updating SDK...${C.reset}`)
+        await import('../scripts/update-sdk.js') // auto-runs on import
         return
     }
 
     // --------------------------------------------------
-    // watch
+    // watch  → merge only, no strings (recommended)
     // --------------------------------------------------
     if (cmd === 'watch') {
         const projectSrc = path.join(process.cwd(), 'src')
-        console.log('Watching:', projectSrc)
+        console.log(`${C.cyan}Watching:${C.reset} ${projectSrc}`)
 
         const mergeFn = await loadMerge()
         if (!mergeFn) return
 
-        // Run initial merge immediately
-        console.log('Initial merge...')
+        console.log(`${C.cyan}Initial merge...${C.reset}`)
         await mergeFn()
 
-        // Watch src/ and re-run merge
         chokidar
             .watch(projectSrc, { ignoreInitial: true })
-            .on('change', async (file) => {
-                console.log('Changed:', file)
+            .on('all', async (event, file) => {
+                console.log(`${C.yellow}Changed:${C.reset} ${file}`)
                 await mergeFn()
             })
 

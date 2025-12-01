@@ -29,12 +29,16 @@ async function main() {
     }
 
     if (cmd === 'build') {
-        await buildProject({
-            skipFiles: (filePath) => {
+        const projectDir = process.cwd()
+
+        await buildProject(
+            projectDir,
+            (filePath) => {
                 if (skipList.length === 0) return false
                 return skipList.some((skip) => filePath.endsWith(skip))
-            },
-        })
+            }
+        )
+
         return
     }
 

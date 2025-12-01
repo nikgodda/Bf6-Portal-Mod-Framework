@@ -2,6 +2,13 @@ import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 
+// Minimal inline color codes
+const C = {
+    reset: '\x1b[0m',
+    green: '\x1b[32m',
+    yellow: '\x1b[33m',
+}
+
 // Fix __dirname in ES module
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -59,9 +66,9 @@ function resolveImport(baseFile, reqPath) {
     return null
 }
 
-// ------------------------------------------------------------
-// DUPLICATE CHECK
-// ------------------------------------------------------------
+// ----------------------------
+// Duplicate identifier check
+// ----------------------------
 
 function findTopLevelDecls(file) {
     const code = fs.readFileSync(file, 'utf8')
@@ -112,7 +119,7 @@ function enforceIdentifierUniqueness(files) {
     }
 }
 
-// ------------------------------------------------------------
+// ----------------------------
 
 export default function merge(entryFileInput) {
     const entryFile =
@@ -131,16 +138,13 @@ export default function merge(entryFileInput) {
     for (const file of ordered) {
         let code = fs.readFileSync(file, 'utf8')
 
-        // Strip imports
         code = code.replace(/import[\s\S]*?from\s+['"][^'"]+['"]\s*;?/g, '')
 
-        // Strip exports
         code = code
             .replace(/^\s*export\s*{[^}]+};?\s*$/gm, '')
             .replace(/^\s*export\s+\*.*$/gm, '')
             .replace(/^\s*export\s+default\s+.*$/gm, '')
 
-        // Normalize line endings, trim trailing spaces
         code = code.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
         code = code.replace(/[ \t]+$/gm, '')
 
@@ -154,5 +158,5 @@ export default function merge(entryFileInput) {
     const outputPath = path.resolve(process.cwd(), '__SCRIPT.ts')
     fs.writeFileSync(outputPath, output, 'utf8')
 
-    console.log('\n__SCRIPT.ts generated successfully\n')
+    console.log(`\n${C.green}__SCRIPT.ts generated successfully${C.reset}\n`)
 }

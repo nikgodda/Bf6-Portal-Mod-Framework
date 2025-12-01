@@ -2,16 +2,22 @@ import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 
+// Inline colors
+const C = {
+    reset: '\x1b[0m',
+    green: '\x1b[32m',
+    blue: '\x1b[34m',
+    yellow: '\x1b[33m',
+    magenta: '\x1b[35m',
+    cyan: '\x1b[36m',
+}
+
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
 const ROOT = process.cwd()
 const SCRIPT_FILE = path.join(ROOT, '__SCRIPT.ts')
 const OUTFILE = path.join(ROOT, '__STRINGS.json')
-
-// -------------------------------------------------------
-// Utility
-// -------------------------------------------------------
 
 function ensureNamespace(obj, parts) {
     let cur = obj
@@ -39,16 +45,15 @@ function loadExistingStrings() {
     }
 }
 
-// -------------------------------------------------------
-// Parse annotations (@range, @keys, @values)
-// -------------------------------------------------------
+// ----------------------------
+// Annotations
+// ----------------------------
 
 function parseAnnotations(content) {
     const anns = []
     const lines = content.split(/\r?\n/)
 
     for (const line of lines) {
-        // @range ns: a-b
         let m = line.match(
             /\/\/\s*@range\s+([A-Za-z0-9_]+)\s*:\s*(\d+)\s*-\s*(\d+)/
         )
@@ -62,7 +67,6 @@ function parseAnnotations(content) {
             continue
         }
 
-        // @keys ns: A, B, C
         m = line.match(/\/\/\s*@keys\s+([A-Za-z0-9_]+)\s*:\s*([^]+)/)
         if (m) {
             const ns = m[1]
@@ -74,7 +78,6 @@ function parseAnnotations(content) {
             continue
         }
 
-        // @values ns arrayName
         m = line.match(/\/\/\s*@values\s+([A-Za-z0-9_]+)\s+([A-Za-z0-9_]+)/)
         if (m) {
             anns.push({ type: 'values', ns: m[1], arrayName: m[2] })
@@ -102,14 +105,14 @@ function extractArrayValues(content) {
     return arrays
 }
 
-// -------------------------------------------------------
-// Extract Message keys
-// -------------------------------------------------------
+// ----------------------------
+// Extract keys
+// ----------------------------
 
 function extractKeyRefs(content) {
     const refs = []
 
-    // Static Message("ns.key", ...)
+    // Static
     const staticMsg =
         /mod\.Message\s*\(\s*(['"`])([^"'`]+)\1\s*(?:,([^)]*))?\)/g
     let m
@@ -123,7 +126,6 @@ function extractKeyRefs(content) {
         })
     }
 
-    // Static stringkeys.ns.key
     const staticSK = /mod\.stringkeys\.([A-Za-z0-9_$.]+)/g
     while ((m = staticSK.exec(content)) !== null) {
         refs.push({
@@ -133,7 +135,7 @@ function extractKeyRefs(content) {
         })
     }
 
-    // Dynamic: Message(`ns.${value}`, ...)
+    // Dynamic
     const dynamicMsg =
         /mod\.Message\s*\(\s*`([A-Za-z0-9_]+)\.\$\{([^}]+)\}`\s*(?:,([^)]*))?\)/g
     while ((m = dynamicMsg.exec(content)) !== null) {
@@ -150,9 +152,9 @@ function extractKeyRefs(content) {
     return refs
 }
 
-// -------------------------------------------------------
-// Apply updates to strings.json
-// -------------------------------------------------------
+// ----------------------------
+// Update strings
+// ----------------------------
 
 function updateKey(fullKey, paramCount, strings) {
     const parts = fullKey.split('.')
@@ -161,29 +163,23 @@ function updateKey(fullKey, paramCount, strings) {
 
     let value = parent[leaf]
 
-    // New key
     if (value === undefined) {
         value = fullKey
         if (paramCount > 0) value += ' ' + '{}'.repeat(paramCount)
         parent[leaf] = value
-        console.log('Added:', fullKey)
+        console.log(`${C.green}Added:${C.reset} ${fullKey}`)
         return true
     }
 
-    // Existing value → maybe add placeholders
     const existingPH = countPlaceholders(value)
     if (existingPH < paramCount) {
         parent[leaf] = value + ' ' + '{}'.repeat(paramCount - existingPH)
-        console.log('Updated placeholders for:', fullKey)
+        console.log(`${C.yellow}Updated placeholders:${C.reset} ${fullKey}`)
         return true
     }
 
     return false
 }
-
-// -------------------------------------------------------
-// MAIN
-// -------------------------------------------------------
 
 export default function run() {
     if (!fs.existsSync(SCRIPT_FILE)) {
@@ -205,7 +201,6 @@ export default function run() {
 
         const ns = ref.dynamicNamespace
 
-        // @range
         const rangeAnn = annotations.find(
             (a) => a.type === 'range' && a.ns === ns
         )
@@ -217,7 +212,6 @@ export default function run() {
             continue
         }
 
-        // @keys
         const keysAnn = annotations.find(
             (a) => a.type === 'keys' && a.ns === ns
         )
@@ -229,7 +223,6 @@ export default function run() {
             continue
         }
 
-        // @values
         const valAnn = annotations.find(
             (a) => a.type === 'values' && a.ns === ns
         )
@@ -245,10 +238,8 @@ export default function run() {
             }
         }
 
-        console.warn(
-            '[WARN] Dynamic key "' +
-                ns +
-                '.*" has no annotation (@range, @keys, @values)'
+        console.log(
+            `${C.magenta}[WARN]${C.reset} Dynamic key "${ns}.*" has no annotation (@range, @keys, @values)`
         )
     }
 
@@ -258,17 +249,16 @@ export default function run() {
         changed = updateKey(ref.key, ref.paramCount, strings) || changed
     }
 
-    // Write file
     if (changed) {
         fs.writeFileSync(
             OUTFILE,
             JSON.stringify(strings, null, 2) + '\n',
             'utf8'
         )
-        console.log('Updated __STRINGS.json')
-        console.log('Upload __STRINGS.json to Portal UI.')
+        console.log(`${C.blue}Upload __STRINGS.json to Portal UI.${C.reset}`)
+        console.log(`${C.green}Updated __STRINGS.json${C.reset}`)
     } else {
-        console.log('Strings already up to date.')
+        console.log(`${C.cyan}Strings already up to date.${C.reset}`)
     }
 }
 

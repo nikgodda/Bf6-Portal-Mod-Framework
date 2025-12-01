@@ -128,7 +128,6 @@ function enforceIdentifierUniqueness(files: string[]) {
 // INHERITANCE ORDERING
 // ----------------------------
 
-// Build map: class name -> file
 function buildClassMap(files: string[]): Map<string, string> {
     const classMap = new Map<string, string>()
 
@@ -155,7 +154,6 @@ function computeInheritanceOrder(files: string[]): string[] {
 
     const classMap = buildClassMap(files)
 
-    // Graph: baseFile -> derivedFiles
     const edges = new Map<string, Set<string>>()
     const inDegree = new Map<string, number>()
 
@@ -164,7 +162,6 @@ function computeInheritanceOrder(files: string[]): string[] {
         inDegree.set(f, 0)
     }
 
-    // Scan for "class Child extends Parent"
     for (const file of files) {
         const code = fs.readFileSync(file, 'utf8')
         let m: RegExpExecArray | null
@@ -185,7 +182,6 @@ function computeInheritanceOrder(files: string[]): string[] {
         }
     }
 
-    // Kahn topological sort, stable order
     const queue: string[] = []
     for (const f of files) {
         if ((inDegree.get(f) || 0) === 0) queue.push(f)
@@ -206,9 +202,7 @@ function computeInheritanceOrder(files: string[]): string[] {
 
     if (result.length !== files.length) {
         console.warn('')
-        console.warn(
-            'WARNING: Inheritance cycle detected. Falling back to import order.'
-        )
+        console.warn('WARNING: Inheritance cycle detected. Falling back to import order.')
         console.warn('')
         return files.slice()
     }
@@ -216,6 +210,8 @@ function computeInheritanceOrder(files: string[]): string[] {
     return result
 }
 
+// ----------------------------
+// MERGE OUTPUT
 // ----------------------------
 
 export default function merge(entryFileInput?: string) {
@@ -238,8 +234,33 @@ export default function merge(entryFileInput?: string) {
     for (const file of finalOrdered) {
         let code = fs.readFileSync(file, 'utf8')
 
-        code = code.replace(/import[\s\S]*?from\s+['"][^'"]+['"]\s*;?/g, '')
+        // --- CHANGE: namespace auto-resolve
+        // Convert: export import X = Namespace.X;
+        // Into:    export const X = Namespace.X;
+        code = code.replace(
+            /^\s*export\s+import\s+([A-Za-z0-9_]+)\s*=\s*([^;]+);?/gm,
+            'export const $1 = $2;'
+        )
 
+        // --- CHANGE: Strip only NON-namespace imports
+        // Keep: import * as X from "..."
+        // Remove: import X from "...", import {A} from "...", import type ...
+        code = code.replace(
+            /^import\s+type\s+.*?;?$/gm,
+            ''
+        )
+
+        code = code.replace(
+            /^import\s+(?!\*\s+as\s+[A-Za-z0-9_]+\s+from)[\s\S]*?from\s+['"][^'"]+['"]\s*;?$/gm,
+            ''
+        )
+
+        code = code.replace(
+            /^import\s+['"][^'"]+['"]\s*;?$/gm,
+            ''
+        )
+
+        // Remove export statements except ones we want to keep
         code = code
             .replace(/^\s*export\s*{[^}]+};?\s*$/gm, '')
             .replace(/^\s*export\s+\*.*$/gm, '')

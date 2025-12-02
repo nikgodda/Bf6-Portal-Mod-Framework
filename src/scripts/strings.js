@@ -74,7 +74,7 @@ function parseStringKeys(content) {
         const m = line.match(/\/\/\s*@stringkeys\s+([A-Za-z0-9_.]+)\s*:\s*(.+)/)
         if (!m) continue
 
-        const ns = m[1] // full namespace (may include dots)
+        const ns = m[1] // nested namespace: ai.bots, ui.menu.buttons, etc.
         const raw = m[2].trim()
 
         const tokens = raw
@@ -84,7 +84,7 @@ function parseStringKeys(content) {
         const values = []
 
         for (const t of tokens) {
-            // RANGE: "0..3", "A..D"
+            // numeric or alpha range: 0..3 or A..F
             const rangeMatch = t.match(/^(.+)\.\.(.+)$/)
             if (rangeMatch) {
                 const start = rangeMatch[1].trim()
@@ -112,7 +112,6 @@ function parseStringKeys(content) {
                 continue
             }
 
-            // literal
             values.push(t)
         }
 
@@ -123,13 +122,14 @@ function parseStringKeys(content) {
 }
 
 // ------------------------------------------------------------
-// EXTRACT REFERENCES (static + dynamic)
+// EXTRACT STRING REFERENCES
 // ------------------------------------------------------------
 function extractKeyRefs(content) {
     const refs = []
 
-    // STATIC mod.Message("a.b.c")
-    const staticMsg = /mod\.Message\s*\(\s*(['"])([^"'`]+)\1\s*(?:,([^)]*))?\)/g
+    // -------- Static mod.Message( "a.b.c" ) or 'a.b.c' or `a.b.c` ----------
+    const staticMsg =
+        /mod\.Message\s*\(\s*(['"`])([^"'`]+)\1\s*(?:,([^)]*))?\)/g
     let m
     while ((m = staticMsg.exec(content)) !== null) {
         const params = m[3]
@@ -141,7 +141,7 @@ function extractKeyRefs(content) {
         })
     }
 
-    // STATIC mod.stringkeys
+    // -------- Static mod.stringkeys.ns.sub ----------
     const staticSK = /mod\.stringkeys\.([A-Za-z0-9_$.]+)/g
     while ((m = staticSK.exec(content)) !== null) {
         refs.push({
@@ -151,12 +151,12 @@ function extractKeyRefs(content) {
         })
     }
 
-    // DYNAMIC mod.Message(`ns.part.${value}`)
+    // -------- Dynamic mod.Message(`ns.${x}`) ----------
     const dynamicMsg =
         /mod\.Message\s*\(\s*`([A-Za-z0-9_.]+)\.\$\{(.*?)\}`\s*(?:,([^)]*))?\)/g
 
     while ((m = dynamicMsg.exec(content)) !== null) {
-        const ns = m[1] // full nested namespace
+        const ns = m[1] // complete namespace
         const params = m[3]
         const paramCount = params ? params.split(',').length : 0
 
@@ -215,7 +215,7 @@ export default function run() {
 
     let changed = false
 
-    // Generate dynamic keys based on @stringkeys
+    // -------- Dynamic keys -> expand via @stringkeys --------
     for (const ref of refs) {
         if (!ref.dynamic) continue
 
@@ -228,7 +228,7 @@ export default function run() {
         }
     }
 
-    // Insert static keys
+    // -------- Static keys --------
     for (const ref of refs) {
         if (ref.dynamic) continue
         changed = updateKey(ref.key, ref.paramCount, strings) || changed
@@ -272,7 +272,9 @@ export default function run() {
         }
     }
 
-    // Write output
+    // ------------------------------------------------------------
+    // WRITE OUTPUT (only when changed)
+    // ------------------------------------------------------------
     if (changed) {
         fs.writeFileSync(
             OUTFILE,

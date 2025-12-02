@@ -74,7 +74,7 @@ function parseStringKeys(content) {
         const m = line.match(/\/\/\s*@stringkeys\s+([A-Za-z0-9_.]+)\s*:\s*(.+)/)
         if (!m) continue
 
-        const ns = m[1] // nested namespace: ai.bots, ui.menu.buttons, etc.
+        const ns = m[1]
         const raw = m[2].trim()
 
         const tokens = raw
@@ -84,7 +84,7 @@ function parseStringKeys(content) {
         const values = []
 
         for (const t of tokens) {
-            // numeric or alpha range: 0..3 or A..F
+            // numeric or alpha range
             const rangeMatch = t.match(/^(.+)\.\.(.+)$/)
             if (rangeMatch) {
                 const start = rangeMatch[1].trim()
@@ -127,21 +127,26 @@ function parseStringKeys(content) {
 function extractKeyRefs(content) {
     const refs = []
 
-    // -------- Static mod.Message( "a.b.c" ) or 'a.b.c' or `a.b.c` ----------
+    // -------- Static mod.Message("x") or 'x' or `x` BUT NO ${ inside --------
     const staticMsg =
-        /mod\.Message\s*\(\s*(['"`])([^"'`]+)\1\s*(?:,([^)]*))?\)/g
+        /mod\.Message\s*\(\s*(['"`])((?:(?!\$\{)[^"'`])*)\1\s*(?:,([^)]*))?\)/g
+
     let m
     while ((m = staticMsg.exec(content)) !== null) {
         const params = m[3]
         const paramCount = params ? params.split(',').length : 0
+
+        const key = m[2].trim()
+        if (key.length === 0) continue
+
         refs.push({
-            key: m[2],
+            key,
             paramCount,
             dynamic: false,
         })
     }
 
-    // -------- Static mod.stringkeys.ns.sub ----------
+    // -------- Static mod.stringkeys.ns.sub --------
     const staticSK = /mod\.stringkeys\.([A-Za-z0-9_$.]+)/g
     while ((m = staticSK.exec(content)) !== null) {
         refs.push({
@@ -151,12 +156,12 @@ function extractKeyRefs(content) {
         })
     }
 
-    // -------- Dynamic mod.Message(`ns.${x}`) ----------
+    // -------- Dynamic mod.Message(`ns.${value}`) --------
     const dynamicMsg =
         /mod\.Message\s*\(\s*`([A-Za-z0-9_.]+)\.\$\{(.*?)\}`\s*(?:,([^)]*))?\)/g
 
     while ((m = dynamicMsg.exec(content)) !== null) {
-        const ns = m[1] // complete namespace
+        const ns = m[1]
         const params = m[3]
         const paramCount = params ? params.split(',').length : 0
 

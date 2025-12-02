@@ -171,7 +171,7 @@ function extractKeyRefs(content) {
 
     // -------- Dynamic mod.Message(`ns.${value}`) --------
     const dynamicMsg =
-        /mod\.Message\s*\(\s*`([A-Za-z0-9_.]+)\.\$\{(.*?)\}`\s*(?:,([^)]*))?\)/g
+        /mod\.Message\s*\(\s*`([A-Za-z0-9_.]+)\.\$\{([\s\S]*?)\}`\s*(?:,([^)]*))?\)/g
 
     while ((m = dynamicMsg.exec(content)) !== null) {
         const ns = m[1]

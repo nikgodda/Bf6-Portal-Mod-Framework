@@ -19,6 +19,9 @@ const ROOT = process.cwd()
 const SCRIPT_FILE = path.join(ROOT, '__SCRIPT.ts')
 const OUTFILE = path.join(ROOT, '__STRINGS.json')
 
+// ------------------------------------------------------------
+// Helpers
+// ------------------------------------------------------------
 function ensureNamespace(obj, parts) {
     let cur = obj
     for (const p of parts) {
@@ -39,27 +42,26 @@ function loadExistingStrings() {
     if (!fs.existsSync(OUTFILE)) return {}
     try {
         return JSON.parse(fs.readFileSync(OUTFILE, 'utf8'))
-    } catch (e) {
+    } catch {
         console.error('Failed to parse __STRINGS.json')
         process.exit(1)
     }
 }
 
-// ----------------------------
-// Parse @stringkeys annotations
-// ----------------------------
+// ------------------------------------------------------------
+// @stringkeys parser — supports nested namespaces (a.b.c)
+// ------------------------------------------------------------
 function parseStringKeys(content) {
     const anns = []
     const lines = content.split(/\r?\n/)
 
     for (const line of lines) {
-        const m = line.match(/\/\/\s*@stringkeys\s+([A-Za-z0-9_]+)\s*:\s*(.+)/)
+        const m = line.match(/\/\/\s*@stringkeys\s+([A-Za-z0-9_.]+)\s*:\s*(.+)/)
         if (!m) continue
 
-        const ns = m[1]
+        const ns = m[1] // supports dots now
         const raw = m[2].trim()
 
-        // split by comma
         const tokens = raw
             .split(',')
             .map((x) => x.trim())
@@ -67,7 +69,7 @@ function parseStringKeys(content) {
         const values = []
 
         for (const t of tokens) {
-            // numeric or string range
+            // range detection
             const rangeMatch = t.match(/^(.+)\.\.(.+)$/)
             if (rangeMatch) {
                 const start = rangeMatch[1].trim()
@@ -76,23 +78,25 @@ function parseStringKeys(content) {
                 const sNum = Number(start)
                 const eNum = Number(end)
 
+                // numeric range
                 if (!isNaN(sNum) && !isNaN(eNum)) {
-                    // numeric range
                     for (let i = sNum; i <= eNum; i++) values.push(String(i))
-                } else {
-                    // string range (A..F)
-                    if (start.length === 1 && end.length === 1) {
-                        const s = start.charCodeAt(0)
-                        const e = end.charCodeAt(0)
-                        for (let code = s; code <= e; code++) {
-                            values.push(String.fromCharCode(code))
-                        }
-                    }
+                    continue
                 }
+
+                // alphabetical range
+                if (start.length === 1 && end.length === 1) {
+                    const s = start.charCodeAt(0)
+                    const e = end.charCodeAt(0)
+                    for (let c = s; c <= e; c++) {
+                        values.push(String.fromCharCode(c))
+                    }
+                    continue
+                }
+
                 continue
             }
 
-            // simple literal
             values.push(t)
         }
 
@@ -102,13 +106,13 @@ function parseStringKeys(content) {
     return anns
 }
 
-// ----------------------------
-// Extract static keys + dynamic namespaces
-// ----------------------------
+// ------------------------------------------------------------
+// Extract static & dynamic keys
+// ------------------------------------------------------------
 function extractKeyRefs(content) {
     const refs = []
 
-    // STATIC mod.Message('x')
+    // Static: mod.Message("some.key")
     const staticMsg = /mod\.Message\s*\(\s*(['"])([^"'`]+)\1\s*(?:,([^)]*))?\)/g
     let m
     while ((m = staticMsg.exec(content)) !== null) {
@@ -121,7 +125,7 @@ function extractKeyRefs(content) {
         })
     }
 
-    // STATIC mod.stringkeys.x
+    // Static: mod.stringkeys.x
     const staticSK = /mod\.stringkeys\.([A-Za-z0-9_$.]+)/g
     while ((m = staticSK.exec(content)) !== null) {
         refs.push({
@@ -131,14 +135,13 @@ function extractKeyRefs(content) {
         })
     }
 
-    // DYNAMIC template literal mod.Message(`bot.${x}`)
-    // but we DO NOT generate keys unless @stringkeys exists
+    // Dynamic: mod.Message(`ns.sub.${value}`)
     const dynamicMsg =
-        /mod\.Message\s*\(\s*`([A-Za-z0-9_]+)\.\$\{.*?\}`\s*(?:,([^)]*))?\)/g
+        /mod\.Message\s*\(\s*`([A-Za-z0-9_.]+)\.\$\{(.*?)\}`\s*(?:,([^)]*))?\)/g
 
     while ((m = dynamicMsg.exec(content)) !== null) {
-        const ns = m[1]
-        const params = m[2]
+        const ns = m[1] // now supports nested namespaces
+        const params = m[3]
         const paramCount = params ? params.split(',').length : 0
 
         refs.push({
@@ -151,9 +154,9 @@ function extractKeyRefs(content) {
     return refs
 }
 
-// ----------------------------
-// Update or create string entry
-// ----------------------------
+// ------------------------------------------------------------
+// Insert/update string key
+// ------------------------------------------------------------
 function updateKey(fullKey, paramCount, strings) {
     const parts = fullKey.split('.')
     const leaf = parts.pop()
@@ -179,9 +182,9 @@ function updateKey(fullKey, paramCount, strings) {
     return false
 }
 
-// ----------------------------
+// ------------------------------------------------------------
 // MAIN
-// ----------------------------
+// ------------------------------------------------------------
 export default function run() {
     if (!fs.existsSync(SCRIPT_FILE)) {
         console.error('__SCRIPT.ts not found. Run merge first.')
@@ -190,31 +193,31 @@ export default function run() {
 
     const content = fs.readFileSync(SCRIPT_FILE, 'utf8')
     const strings = loadExistingStrings()
-    const ann = parseStringKeys(content)
+    const annotations = parseStringKeys(content)
     const refs = extractKeyRefs(content)
 
     let changed = false
 
-    // -------- DYNAMIC keys via @stringkeys --------
+    // Dynamic keys with @stringkeys
     for (const ref of refs) {
         if (!ref.dynamic) continue
 
-        const a = ann.find((x) => x.ns === ref.namespace)
-        if (!a) continue // silently ignore, no warnings
+        const ann = annotations.find((a) => a.ns === ref.namespace)
+        if (!ann) continue
 
-        for (const val of a.values) {
-            const full = `${ref.namespace}.${val}`
-            changed = updateKey(full, ref.paramCount, strings) || changed
+        for (const val of ann.values) {
+            const fullKey = `${ref.namespace}.${val}`
+            changed = updateKey(fullKey, ref.paramCount, strings) || changed
         }
     }
 
-    // -------- STATIC keys --------
+    // Static keys
     for (const ref of refs) {
         if (ref.dynamic) continue
         changed = updateKey(ref.key, ref.paramCount, strings) || changed
     }
 
-    // -------- Write results --------
+    // Write output
     if (changed) {
         fs.writeFileSync(
             OUTFILE,

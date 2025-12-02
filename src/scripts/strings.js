@@ -20,20 +20,20 @@ const SCRIPT_FILE = path.join(ROOT, '__SCRIPT.ts')
 const OUTFILE = path.join(ROOT, '__STRINGS.json')
 
 // ------------------------------------------------------------
-// STRIP COMMENTS (prevents false key detection inside comments)
+// COMMENT STRIPPING (safe for @stringkeys)
 // ------------------------------------------------------------
 function stripComments(code) {
-    // Remove block comments (/* ... */)
+    // Remove block comments entirely
     code = code.replace(/\/\*[\s\S]*?\*\//g, '')
 
-    // Remove line comments (// ...)
-    code = code.replace(/\/\/.*$/gm, '')
+    // Remove all line comments EXCEPT @stringkeys
+    code = code.replace(/\/\/(?!\s*@stringkeys).*$/gm, '')
 
     return code
 }
 
 // ------------------------------------------------------------
-// LOAD CONFIG (package.json -> bf6mod.warnUnusedStrings)
+// LOAD CONFIG
 // ------------------------------------------------------------
 function loadConfig() {
     const pkgPath = path.join(process.cwd(), 'package.json')
@@ -77,7 +77,7 @@ function loadExistingStrings() {
 }
 
 // ------------------------------------------------------------
-// PARSE @stringkeys (supports nested namespaces + ranges)
+// PARSE @stringkeys
 // ------------------------------------------------------------
 function parseStringKeys(content) {
     const anns = []
@@ -89,7 +89,6 @@ function parseStringKeys(content) {
 
         const ns = m[1]
         const raw = m[2].trim()
-
         const tokens = raw
             .split(',')
             .map((x) => x.trim())
@@ -111,7 +110,7 @@ function parseStringKeys(content) {
                     continue
                 }
 
-                // A..Z range
+                // alphabetical range
                 if (start.length === 1 && end.length === 1) {
                     const a = start.charCodeAt(0)
                     const b = end.charCodeAt(0)
@@ -124,6 +123,7 @@ function parseStringKeys(content) {
                 continue
             }
 
+            // literal
             values.push(t)
         }
 
@@ -139,7 +139,7 @@ function parseStringKeys(content) {
 function extractKeyRefs(content) {
     const refs = []
 
-    // -------- Static mod.Message("x") or `x` but NO ${ inside --------
+    // -------- Static mod.Message('x') / "x" / `x` but NO ${...} --------
     const staticMsg =
         /mod\.Message\s*\(\s*(['"`])((?:(?!\$\{)[^"'`])*)\1\s*(?:,([^)]*))?\)/g
 
@@ -160,6 +160,7 @@ function extractKeyRefs(content) {
 
     // -------- Static mod.stringkeys.x.y.z --------
     const staticSK = /mod\.stringkeys\.([A-Za-z0-9_$.]+)/g
+
     while ((m = staticSK.exec(content)) !== null) {
         refs.push({
             key: m[1],
@@ -226,7 +227,7 @@ export default function run() {
 
     let content = fs.readFileSync(SCRIPT_FILE, 'utf8')
 
-    // Prevent false matches inside comments
+    // Must happen FIRST — prevents false matches in comments
     content = stripComments(content)
 
     const strings = loadExistingStrings()
@@ -236,9 +237,10 @@ export default function run() {
 
     let changed = false
 
-    // -------- Dynamic keys (expand via annotation) --------
+    // Expand dynamic keys via @stringkeys
     for (const ref of refs) {
         if (!ref.dynamic) continue
+
         const ann = annotations.find((a) => a.ns === ref.namespace)
         if (!ann) continue
 
@@ -248,19 +250,19 @@ export default function run() {
         }
     }
 
-    // -------- Static keys --------
+    // Insert static keys
     for (const ref of refs) {
         if (ref.dynamic) continue
         changed = updateKey(ref.key, ref.paramCount, strings) || changed
     }
 
     // ------------------------------------------------------------
-    // OPTIONAL: WARN ABOUT UNUSED KEYS
+    // OPTIONAL: WARN ABOUT UNUSED STRINGS
     // ------------------------------------------------------------
     if (config.warnUnusedStrings) {
         function flatten(obj, prefix = '', out = []) {
             for (const k in obj) {
-                const full = prefix ? prefix + '.' + k : k
+                const full = prefix ? `${prefix}.${k}` : k
                 if (typeof obj[k] === 'object') flatten(obj[k], full, out)
                 else out.push(full)
             }
@@ -270,12 +272,12 @@ export default function run() {
         const allExisting = flatten(strings)
         const used = new Set()
 
-        // static keys
+        // Static
         for (const ref of refs) {
             if (!ref.dynamic) used.add(ref.key)
         }
 
-        // dynamic keys
+        // Dynamic
         for (const ref of refs) {
             if (!ref.dynamic) continue
             const ann = annotations.find((a) => a.ns === ref.namespace)
@@ -285,6 +287,7 @@ export default function run() {
             }
         }
 
+        // Warn
         for (const key of allExisting) {
             if (!used.has(key)) {
                 console.log(`${C.magenta}[UNUSED]${C.reset} ${key}`)
@@ -293,7 +296,7 @@ export default function run() {
     }
 
     // ------------------------------------------------------------
-    // WRITE FILE (only when changed)
+    // WRITE OUTPUT
     // ------------------------------------------------------------
     if (changed) {
         fs.writeFileSync(

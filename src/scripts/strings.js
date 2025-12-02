@@ -2,7 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 
-// Inline colors
+// inline colors
 const C = {
     reset: '\x1b[0m',
     green: '\x1b[32m',
@@ -20,7 +20,22 @@ const SCRIPT_FILE = path.join(ROOT, '__SCRIPT.ts')
 const OUTFILE = path.join(ROOT, '__STRINGS.json')
 
 // ------------------------------------------------------------
-// Helpers
+// LOAD CONFIG (package.json -> bf6mod.warnUnusedStrings)
+// ------------------------------------------------------------
+function loadConfig() {
+    const pkgPath = path.join(process.cwd(), 'package.json')
+    if (!fs.existsSync(pkgPath)) return { warnUnusedStrings: false }
+
+    try {
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'))
+        return pkg.bf6mod || { warnUnusedStrings: false }
+    } catch {
+        return { warnUnusedStrings: false }
+    }
+}
+
+// ------------------------------------------------------------
+// HELPERS
 // ------------------------------------------------------------
 function ensureNamespace(obj, parts) {
     let cur = obj
@@ -49,7 +64,7 @@ function loadExistingStrings() {
 }
 
 // ------------------------------------------------------------
-// @stringkeys parser — supports nested namespaces (a.b.c)
+// PARSE @stringkeys (supports nested namespaces)
 // ------------------------------------------------------------
 function parseStringKeys(content) {
     const anns = []
@@ -59,7 +74,7 @@ function parseStringKeys(content) {
         const m = line.match(/\/\/\s*@stringkeys\s+([A-Za-z0-9_.]+)\s*:\s*(.+)/)
         if (!m) continue
 
-        const ns = m[1] // supports dots now
+        const ns = m[1] // full namespace (may include dots)
         const raw = m[2].trim()
 
         const tokens = raw
@@ -69,7 +84,7 @@ function parseStringKeys(content) {
         const values = []
 
         for (const t of tokens) {
-            // range detection
+            // RANGE: "0..3", "A..D"
             const rangeMatch = t.match(/^(.+)\.\.(.+)$/)
             if (rangeMatch) {
                 const start = rangeMatch[1].trim()
@@ -86,9 +101,9 @@ function parseStringKeys(content) {
 
                 // alphabetical range
                 if (start.length === 1 && end.length === 1) {
-                    const s = start.charCodeAt(0)
-                    const e = end.charCodeAt(0)
-                    for (let c = s; c <= e; c++) {
+                    const a = start.charCodeAt(0)
+                    const b = end.charCodeAt(0)
+                    for (let c = a; c <= b; c++) {
                         values.push(String.fromCharCode(c))
                     }
                     continue
@@ -97,6 +112,7 @@ function parseStringKeys(content) {
                 continue
             }
 
+            // literal
             values.push(t)
         }
 
@@ -107,12 +123,12 @@ function parseStringKeys(content) {
 }
 
 // ------------------------------------------------------------
-// Extract static & dynamic keys
+// EXTRACT REFERENCES (static + dynamic)
 // ------------------------------------------------------------
 function extractKeyRefs(content) {
     const refs = []
 
-    // Static: mod.Message("some.key")
+    // STATIC mod.Message("a.b.c")
     const staticMsg = /mod\.Message\s*\(\s*(['"])([^"'`]+)\1\s*(?:,([^)]*))?\)/g
     let m
     while ((m = staticMsg.exec(content)) !== null) {
@@ -125,7 +141,7 @@ function extractKeyRefs(content) {
         })
     }
 
-    // Static: mod.stringkeys.x
+    // STATIC mod.stringkeys
     const staticSK = /mod\.stringkeys\.([A-Za-z0-9_$.]+)/g
     while ((m = staticSK.exec(content)) !== null) {
         refs.push({
@@ -135,12 +151,12 @@ function extractKeyRefs(content) {
         })
     }
 
-    // Dynamic: mod.Message(`ns.sub.${value}`)
+    // DYNAMIC mod.Message(`ns.part.${value}`)
     const dynamicMsg =
         /mod\.Message\s*\(\s*`([A-Za-z0-9_.]+)\.\$\{(.*?)\}`\s*(?:,([^)]*))?\)/g
 
     while ((m = dynamicMsg.exec(content)) !== null) {
-        const ns = m[1] // now supports nested namespaces
+        const ns = m[1] // full nested namespace
         const params = m[3]
         const paramCount = params ? params.split(',').length : 0
 
@@ -155,7 +171,7 @@ function extractKeyRefs(content) {
 }
 
 // ------------------------------------------------------------
-// Insert/update string key
+// UPDATE OR INSERT STRING ENTRY
 // ------------------------------------------------------------
 function updateKey(fullKey, paramCount, strings) {
     const parts = fullKey.split('.')
@@ -195,10 +211,11 @@ export default function run() {
     const strings = loadExistingStrings()
     const annotations = parseStringKeys(content)
     const refs = extractKeyRefs(content)
+    const config = loadConfig()
 
     let changed = false
 
-    // Dynamic keys with @stringkeys
+    // Generate dynamic keys based on @stringkeys
     for (const ref of refs) {
         if (!ref.dynamic) continue
 
@@ -211,10 +228,48 @@ export default function run() {
         }
     }
 
-    // Static keys
+    // Insert static keys
     for (const ref of refs) {
         if (ref.dynamic) continue
         changed = updateKey(ref.key, ref.paramCount, strings) || changed
+    }
+
+    // ------------------------------------------------------------
+    // OPTIONAL: WARN ABOUT UNUSED KEYS
+    // ------------------------------------------------------------
+    if (config.warnUnusedStrings) {
+        function flatten(obj, prefix = '', out = []) {
+            for (const k in obj) {
+                const full = prefix ? prefix + '.' + k : k
+                if (typeof obj[k] === 'object') flatten(obj[k], full, out)
+                else out.push(full)
+            }
+            return out
+        }
+
+        const allExisting = flatten(strings)
+        const used = new Set()
+
+        // static keys
+        for (const ref of refs) {
+            if (!ref.dynamic) used.add(ref.key)
+        }
+
+        // dynamic keys
+        for (const ref of refs) {
+            if (!ref.dynamic) continue
+            const ann = annotations.find((a) => a.ns === ref.namespace)
+            if (!ann) continue
+            for (const val of ann.values) {
+                used.add(`${ref.namespace}.${val}`)
+            }
+        }
+
+        for (const key of allExisting) {
+            if (!used.has(key)) {
+                console.log(`${C.magenta}[UNUSED]${C.reset} ${key}`)
+            }
+        }
     }
 
     // Write output

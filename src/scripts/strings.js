@@ -20,6 +20,19 @@ const SCRIPT_FILE = path.join(ROOT, '__SCRIPT.ts')
 const OUTFILE = path.join(ROOT, '__STRINGS.json')
 
 // ------------------------------------------------------------
+// STRIP COMMENTS (prevents false key detection inside comments)
+// ------------------------------------------------------------
+function stripComments(code) {
+    // Remove block comments (/* ... */)
+    code = code.replace(/\/\*[\s\S]*?\*\//g, '')
+
+    // Remove line comments (// ...)
+    code = code.replace(/\/\/.*$/gm, '')
+
+    return code
+}
+
+// ------------------------------------------------------------
 // LOAD CONFIG (package.json -> bf6mod.warnUnusedStrings)
 // ------------------------------------------------------------
 function loadConfig() {
@@ -64,14 +77,14 @@ function loadExistingStrings() {
 }
 
 // ------------------------------------------------------------
-// PARSE @stringkeys (supports nested namespaces)
+// PARSE @stringkeys (supports nested namespaces + ranges)
 // ------------------------------------------------------------
 function parseStringKeys(content) {
     const anns = []
     const lines = content.split(/\r?\n/)
 
     for (const line of lines) {
-        const m = line.match(/\/\/\s*@stringkeys\s+([A-Za-z0-9_.]+)\s*:\s*(.+)/)
+        const m = line.match(/@stringkeys\s+([A-Za-z0-9_.]+)\s*:\s*(.+)/)
         if (!m) continue
 
         const ns = m[1]
@@ -84,11 +97,10 @@ function parseStringKeys(content) {
         const values = []
 
         for (const t of tokens) {
-            // numeric or alpha range
-            const rangeMatch = t.match(/^(.+)\.\.(.+)$/)
-            if (rangeMatch) {
-                const start = rangeMatch[1].trim()
-                const end = rangeMatch[2].trim()
+            const range = t.match(/^(.+)\.\.(.+)$/)
+            if (range) {
+                const start = range[1].trim()
+                const end = range[2].trim()
 
                 const sNum = Number(start)
                 const eNum = Number(end)
@@ -99,7 +111,7 @@ function parseStringKeys(content) {
                     continue
                 }
 
-                // alphabetical range
+                // A..Z range
                 if (start.length === 1 && end.length === 1) {
                     const a = start.charCodeAt(0)
                     const b = end.charCodeAt(0)
@@ -127,17 +139,17 @@ function parseStringKeys(content) {
 function extractKeyRefs(content) {
     const refs = []
 
-    // -------- Static mod.Message("x") or 'x' or `x` BUT NO ${ inside --------
+    // -------- Static mod.Message("x") or `x` but NO ${ inside --------
     const staticMsg =
         /mod\.Message\s*\(\s*(['"`])((?:(?!\$\{)[^"'`])*)\1\s*(?:,([^)]*))?\)/g
 
     let m
     while ((m = staticMsg.exec(content)) !== null) {
+        const key = m[2].trim()
+        if (!key) continue
+
         const params = m[3]
         const paramCount = params ? params.split(',').length : 0
-
-        const key = m[2].trim()
-        if (key.length === 0) continue
 
         refs.push({
             key,
@@ -146,7 +158,7 @@ function extractKeyRefs(content) {
         })
     }
 
-    // -------- Static mod.stringkeys.ns.sub --------
+    // -------- Static mod.stringkeys.x.y.z --------
     const staticSK = /mod\.stringkeys\.([A-Za-z0-9_$.]+)/g
     while ((m = staticSK.exec(content)) !== null) {
         refs.push({
@@ -176,7 +188,7 @@ function extractKeyRefs(content) {
 }
 
 // ------------------------------------------------------------
-// UPDATE OR INSERT STRING ENTRY
+// UPDATE / INSERT KEY
 // ------------------------------------------------------------
 function updateKey(fullKey, paramCount, strings) {
     const parts = fullKey.split('.')
@@ -204,7 +216,7 @@ function updateKey(fullKey, paramCount, strings) {
 }
 
 // ------------------------------------------------------------
-// MAIN
+// MAIN PROCESS
 // ------------------------------------------------------------
 export default function run() {
     if (!fs.existsSync(SCRIPT_FILE)) {
@@ -212,7 +224,11 @@ export default function run() {
         process.exit(1)
     }
 
-    const content = fs.readFileSync(SCRIPT_FILE, 'utf8')
+    let content = fs.readFileSync(SCRIPT_FILE, 'utf8')
+
+    // Prevent false matches inside comments
+    content = stripComments(content)
+
     const strings = loadExistingStrings()
     const annotations = parseStringKeys(content)
     const refs = extractKeyRefs(content)
@@ -220,10 +236,9 @@ export default function run() {
 
     let changed = false
 
-    // -------- Dynamic keys -> expand via @stringkeys --------
+    // -------- Dynamic keys (expand via annotation) --------
     for (const ref of refs) {
         if (!ref.dynamic) continue
-
         const ann = annotations.find((a) => a.ns === ref.namespace)
         if (!ann) continue
 
@@ -278,7 +293,7 @@ export default function run() {
     }
 
     // ------------------------------------------------------------
-    // WRITE OUTPUT (only when changed)
+    // WRITE FILE (only when changed)
     // ------------------------------------------------------------
     if (changed) {
         fs.writeFileSync(

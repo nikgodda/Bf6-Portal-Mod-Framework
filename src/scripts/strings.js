@@ -181,7 +181,8 @@ function extractKeyRefs(content) {
     }
 
     // -------- Static mod.stringkeys.x.y.z (dot-notation only) --------
-    const staticSK = /mod\.stringkeys\.([A-Za-z0-9_$.]+)(?!\s*\[)/g
+    const staticSK =
+        /mod\.stringkeys\.([A-Za-z0-9_$.]+)(?=(?!\s*\[)\s*(?:$|[\s),+]))/g
 
     while ((m = staticSK.exec(content)) !== null) {
         refs.push({

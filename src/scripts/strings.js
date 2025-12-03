@@ -49,9 +49,7 @@ function loadConfig() {
 function ensureNamespace(obj, parts) {
     let cur = obj
     for (const p of parts) {
-        if (typeof cur[p] !== 'object' || cur[p] === null) {
-            cur[p] = {}
-        }
+        if (typeof cur[p] !== 'object' || cur[p] === null) cur[p] = {}
         cur = cur[p]
     }
     return cur
@@ -73,7 +71,7 @@ function loadExistingStrings() {
 }
 
 // ------------------------------------------------------------
-// PARSE @stringkeys
+// PARSE @stringkeys (NOW TRACKS paramCount PER ENTRY)
 // ------------------------------------------------------------
 function parseStringKeys(content) {
     const anns = []
@@ -85,11 +83,11 @@ function parseStringKeys(content) {
 
         const ns = m[1]
         const raw = m[2].trim()
+
         const tokens = raw
             .split(',')
             .map((x) => x.trim())
             .filter(Boolean)
-
         const values = []
 
         for (const t of tokens) {
@@ -107,18 +105,13 @@ function parseStringKeys(content) {
                 if (isNumStart && isNumEnd) {
                     const sNum = parseInt(start, 10)
                     const eNum = parseInt(end, 10)
-                    if (
-                        !Number.isNaN(sNum) &&
-                        !Number.isNaN(eNum) &&
-                        eNum >= sNum
-                    ) {
+                    if (eNum >= sNum) {
                         const width = start.length
                         for (let i = sNum; i <= eNum; i++) {
                             let v = String(i)
-                            if (start[0] === '0' && v.length < width) {
+                            if (start[0] === '0' && v.length < width)
                                 v = v.padStart(width, '0')
-                            }
-                            values.push(v)
+                            values.push({ key: v, paramCount: 0 })
                         }
                     }
                     continue
@@ -130,14 +123,17 @@ function parseStringKeys(content) {
                     const b = end.charCodeAt(0)
                     if (b >= a) {
                         for (let c = a; c <= b; c++) {
-                            values.push(String.fromCharCode(c))
+                            values.push({
+                                key: String.fromCharCode(c),
+                                paramCount: 0,
+                            })
                         }
                     }
                     continue
                 }
             }
 
-            // literal → base key only
+            // literal entry — extract base key and param count
             let base = t.trim()
 
             const spaceIdx = base.search(/\s/)
@@ -146,7 +142,10 @@ function parseStringKeys(content) {
             const braceIdx = base.indexOf('{')
             if (braceIdx !== -1) base = base.slice(0, braceIdx)
 
-            if (base) values.push(base)
+            if (!base) continue
+
+            const paramCount = countPlaceholders(t)
+            values.push({ key: base, paramCount })
         }
 
         anns.push({ ns, values })
@@ -161,7 +160,7 @@ function parseStringKeys(content) {
 function extractKeyRefs(content) {
     const refs = []
 
-    // static mod.Message("x") with NO `${}` and NO concatenation
+    // static mod.Message("x") no ${} no concat
     const staticMsg =
         /mod\.Message\s*\(\s*(['"`])((?:(?!\$\{)[^"'`])*)\1(?!\s*\+)\s*(?:,([^)]*))?\)/g
 
@@ -176,7 +175,7 @@ function extractKeyRefs(content) {
         refs.push({ key, paramCount, dynamic: false })
     }
 
-    // static mod.stringkeys.x.y.z (dot only, not bracket)
+    // static SK (dot-notation only, no bracket)
     const staticSK =
         /mod\.stringkeys\.([A-Za-z0-9_$.]+)(?=(?!\s*\[)\s*(?:$|[\s),+]))/g
 
@@ -246,12 +245,12 @@ export default function run() {
     let changed = false
 
     // --------------------------------------------------------
-    // Create all @stringkeys entries
+    // Apply annotations with correct paramCounts
     // --------------------------------------------------------
     for (const ann of annotations) {
-        for (const val of ann.values) {
-            const fullKey = `${ann.ns}.${val}`
-            changed = updateKey(fullKey, 0, strings) || changed
+        for (const v of ann.values) {
+            const fullKey = `${ann.ns}.${v.key}`
+            changed = updateKey(fullKey, v.paramCount, strings) || changed
         }
     }
 
@@ -264,8 +263,8 @@ export default function run() {
         const ann = annotations.find((a) => a.ns === ref.namespace)
         if (!ann) continue
 
-        for (const val of ann.values) {
-            const fullKey = `${ref.namespace}.${val}`
+        for (const v of ann.values) {
+            const fullKey = `${ref.namespace}.${v.key}`
             changed = updateKey(fullKey, ref.paramCount, strings) || changed
         }
     }
@@ -279,18 +278,19 @@ export default function run() {
     }
 
     // --------------------------------------------------------
-    // Detect dynamic mod.stringkeys.ns[ ... ] usage
+    // Detect dynamic SK namespaces (for UNUSED)
     // --------------------------------------------------------
     const dynamicSKUsed = new Set()
     const dynSKregex = /mod\.stringkeys\.([A-Za-z0-9_$.]+)\s*\[/g
+
     let mk
     while ((mk = dynSKregex.exec(content)) !== null) {
         dynamicSKUsed.add(mk[1])
     }
 
-    // ------------------------------------------------------------
-    // OPTIONAL: WARN ABOUT UNUSED STRINGS
-    // ------------------------------------------------------------
+    // --------------------------------------------------------
+    // Warn unused
+    // --------------------------------------------------------
     if (config.warnUnusedStrings) {
         function flatten(obj, prefix = '', out = []) {
             for (const k in obj) {
@@ -304,22 +304,22 @@ export default function run() {
         const allExisting = flatten(strings)
         const used = new Set()
 
-        // Static mod.Message + mod.stringkeys
+        // static keys
         for (const ref of refs) {
             if (!ref.dynamic) used.add(ref.key)
         }
 
-        // Dynamic mod.Message(`ns.${x}`)
+        // dynamic message expansions
         for (const ref of refs) {
             if (!ref.dynamic) continue
             const ann = annotations.find((a) => a.ns === ref.namespace)
             if (!ann) continue
-            for (const val of ann.values) {
-                used.add(`${ref.namespace}.${val}`)
+            for (const v of ann.values) {
+                used.add(`${ref.namespace}.${v.key}`)
             }
         }
 
-        // Mark all NS keys as used when dynamic SK namespace access is found
+        // mark SK dynamic namespaces
         for (const dynNS of dynamicSKUsed) {
             for (const key of allExisting) {
                 if (key.startsWith(dynNS + '.')) {
@@ -335,9 +335,9 @@ export default function run() {
         }
     }
 
-    // ------------------------------------------------------------
-    // WRITE OUTPUT
-    // ------------------------------------------------------------
+    // --------------------------------------------------------
+    // WRITE
+    // --------------------------------------------------------
     if (changed) {
         fs.writeFileSync(
             OUTFILE,

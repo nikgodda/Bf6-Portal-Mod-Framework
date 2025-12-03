@@ -20,7 +20,7 @@ const SCRIPT_FILE = path.join(ROOT, '__SCRIPT.ts')
 const OUTFILE = path.join(ROOT, '__STRINGS.json')
 
 // ------------------------------------------------------------
-// COMMENT STRIPPING (safe for @stringkeys)
+// COMMENT STRIPPING
 // ------------------------------------------------------------
 function stripComments(code) {
     code = code.replace(/\/\*[\s\S]*?\*\//g, '')
@@ -137,7 +137,7 @@ function parseStringKeys(content) {
                 }
             }
 
-            // literal token → base key only
+            // literal → base key only
             let base = t.trim()
 
             const spaceIdx = base.search(/\s/)
@@ -161,7 +161,7 @@ function parseStringKeys(content) {
 function extractKeyRefs(content) {
     const refs = []
 
-    // -------- Static mod.Message("x") with NO template and NO concatenation --------
+    // static mod.Message("x") with NO `${}` and NO concatenation
     const staticMsg =
         /mod\.Message\s*\(\s*(['"`])((?:(?!\$\{)[^"'`])*)\1(?!\s*\+)\s*(?:,([^)]*))?\)/g
 
@@ -173,26 +173,18 @@ function extractKeyRefs(content) {
         const params = m[3]
         const paramCount = params ? params.split(',').length : 0
 
-        refs.push({
-            key,
-            paramCount,
-            dynamic: false,
-        })
+        refs.push({ key, paramCount, dynamic: false })
     }
 
-    // -------- Static mod.stringkeys.x.y.z (dot-notation only) --------
+    // static mod.stringkeys.x.y.z (dot only, not bracket)
     const staticSK =
         /mod\.stringkeys\.([A-Za-z0-9_$.]+)(?=(?!\s*\[)\s*(?:$|[\s),+]))/g
 
     while ((m = staticSK.exec(content)) !== null) {
-        refs.push({
-            key: m[1],
-            paramCount: 0,
-            dynamic: false,
-        })
+        refs.push({ key: m[1], paramCount: 0, dynamic: false })
     }
 
-    // -------- Dynamic mod.Message(`ns.${value}`) --------
+    // dynamic mod.Message(`ns.${x}`)
     const dynamicMsg =
         /mod\.Message\s*\(\s*`([A-Za-z0-9_.]+)\.\$\{([\s\S]*?)\}`\s*(?:,([^)]*))?\)/g
 
@@ -200,12 +192,7 @@ function extractKeyRefs(content) {
         const ns = m[1]
         const params = m[3]
         const paramCount = params ? params.split(',').length : 0
-
-        refs.push({
-            namespace: ns,
-            paramCount,
-            dynamic: true,
-        })
+        refs.push({ namespace: ns, paramCount, dynamic: true })
     }
 
     return refs
@@ -259,7 +246,7 @@ export default function run() {
     let changed = false
 
     // --------------------------------------------------------
-    // Ensure all @stringkeys entries exist
+    // Create all @stringkeys entries
     // --------------------------------------------------------
     for (const ann of annotations) {
         for (const val of ann.values) {
@@ -269,7 +256,7 @@ export default function run() {
     }
 
     // --------------------------------------------------------
-    // Expand dynamic keys via @stringkeys
+    // Expand dynamic mod.Message(`ns.${x}`)
     // --------------------------------------------------------
     for (const ref of refs) {
         if (!ref.dynamic) continue
@@ -291,6 +278,16 @@ export default function run() {
         changed = updateKey(ref.key, ref.paramCount, strings) || changed
     }
 
+    // --------------------------------------------------------
+    // Detect dynamic mod.stringkeys.ns[ ... ] usage
+    // --------------------------------------------------------
+    const dynamicSKUsed = new Set()
+    const dynSKregex = /mod\.stringkeys\.([A-Za-z0-9_$.]+)\s*\[/g
+    let mk
+    while ((mk = dynSKregex.exec(content)) !== null) {
+        dynamicSKUsed.add(mk[1])
+    }
+
     // ------------------------------------------------------------
     // OPTIONAL: WARN ABOUT UNUSED STRINGS
     // ------------------------------------------------------------
@@ -307,18 +304,27 @@ export default function run() {
         const allExisting = flatten(strings)
         const used = new Set()
 
-        // Static
+        // Static mod.Message + mod.stringkeys
         for (const ref of refs) {
             if (!ref.dynamic) used.add(ref.key)
         }
 
-        // Dynamic
+        // Dynamic mod.Message(`ns.${x}`)
         for (const ref of refs) {
             if (!ref.dynamic) continue
             const ann = annotations.find((a) => a.ns === ref.namespace)
             if (!ann) continue
             for (const val of ann.values) {
                 used.add(`${ref.namespace}.${val}`)
+            }
+        }
+
+        // Mark all NS keys as used when dynamic SK namespace access is found
+        for (const dynNS of dynamicSKUsed) {
+            for (const key of allExisting) {
+                if (key.startsWith(dynNS + '.')) {
+                    used.add(key)
+                }
             }
         }
 

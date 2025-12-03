@@ -23,12 +23,8 @@ const OUTFILE = path.join(ROOT, '__STRINGS.json')
 // COMMENT STRIPPING (safe for @stringkeys)
 // ------------------------------------------------------------
 function stripComments(code) {
-    // Remove block comments entirely
     code = code.replace(/\/\*[\s\S]*?\*\//g, '')
-
-    // Remove all line comments EXCEPT @stringkeys
     code = code.replace(/\/\/(?!\s*@stringkeys).*$/gm, '')
-
     return code
 }
 
@@ -93,6 +89,7 @@ function parseStringKeys(content) {
             .split(',')
             .map((x) => x.trim())
             .filter(Boolean)
+
         const values = []
 
         for (const t of tokens) {
@@ -101,30 +98,55 @@ function parseStringKeys(content) {
                 const start = range[1].trim()
                 const end = range[2].trim()
 
-                const sNum = Number(start)
-                const eNum = Number(end)
+                const isNumStart = /^[0-9]+$/.test(start)
+                const isNumEnd = /^[0-9]+$/.test(end)
+                const isAlphaStart = /^[A-Za-z]$/.test(start)
+                const isAlphaEnd = /^[A-Za-z]$/.test(end)
 
                 // numeric range
-                if (!isNaN(sNum) && !isNaN(eNum)) {
-                    for (let i = sNum; i <= eNum; i++) values.push(String(i))
-                    continue
-                }
-
-                // alphabetical range
-                if (start.length === 1 && end.length === 1) {
-                    const a = start.charCodeAt(0)
-                    const b = end.charCodeAt(0)
-                    for (let c = a; c <= b; c++) {
-                        values.push(String.fromCharCode(c))
+                if (isNumStart && isNumEnd) {
+                    const sNum = parseInt(start, 10)
+                    const eNum = parseInt(end, 10)
+                    if (
+                        !Number.isNaN(sNum) &&
+                        !Number.isNaN(eNum) &&
+                        eNum >= sNum
+                    ) {
+                        const width = start.length
+                        for (let i = sNum; i <= eNum; i++) {
+                            let v = String(i)
+                            if (start[0] === '0' && v.length < width) {
+                                v = v.padStart(width, '0')
+                            }
+                            values.push(v)
+                        }
                     }
                     continue
                 }
 
-                continue
+                // alphabetical range
+                if (isAlphaStart && isAlphaEnd) {
+                    const a = start.charCodeAt(0)
+                    const b = end.charCodeAt(0)
+                    if (b >= a) {
+                        for (let c = a; c <= b; c++) {
+                            values.push(String.fromCharCode(c))
+                        }
+                    }
+                    continue
+                }
             }
 
-            // literal
-            values.push(t)
+            // literal token → base key only
+            let base = t.trim()
+
+            const spaceIdx = base.search(/\s/)
+            if (spaceIdx !== -1) base = base.slice(0, spaceIdx)
+
+            const braceIdx = base.indexOf('{')
+            if (braceIdx !== -1) base = base.slice(0, braceIdx)
+
+            if (base) values.push(base)
         }
 
         anns.push({ ns, values })
@@ -139,9 +161,9 @@ function parseStringKeys(content) {
 function extractKeyRefs(content) {
     const refs = []
 
-    // -------- Static mod.Message('x') / "x" / `x` but NO ${...} --------
+    // -------- Static mod.Message("x") with NO template and NO concatenation --------
     const staticMsg =
-        /mod\.Message\s*\(\s*(['"`])((?:(?!\$\{)[^"'`])*)\1\s*(?:,([^)]*))?\)/g
+        /mod\.Message\s*\(\s*(['"`])((?:(?!\$\{)[^"'`])*)\1(?!\s*\+)\s*(?:,([^)]*))?\)/g
 
     let m
     while ((m = staticMsg.exec(content)) !== null) {
@@ -158,7 +180,7 @@ function extractKeyRefs(content) {
         })
     }
 
-    // -------- Static mod.stringkeys.x.y.z --------
+    // -------- Static mod.stringkeys.x.y.z (dot-notation only) --------
     const staticSK = /mod\.stringkeys\.([A-Za-z0-9_$.]+)/g
 
     while ((m = staticSK.exec(content)) !== null) {
@@ -226,8 +248,6 @@ export default function run() {
     }
 
     let content = fs.readFileSync(SCRIPT_FILE, 'utf8')
-
-    // Must happen FIRST — prevents false matches in comments
     content = stripComments(content)
 
     const strings = loadExistingStrings()
@@ -237,7 +257,19 @@ export default function run() {
 
     let changed = false
 
+    // --------------------------------------------------------
+    // Ensure all @stringkeys entries exist
+    // --------------------------------------------------------
+    for (const ann of annotations) {
+        for (const val of ann.values) {
+            const fullKey = `${ann.ns}.${val}`
+            changed = updateKey(fullKey, 0, strings) || changed
+        }
+    }
+
+    // --------------------------------------------------------
     // Expand dynamic keys via @stringkeys
+    // --------------------------------------------------------
     for (const ref of refs) {
         if (!ref.dynamic) continue
 
@@ -250,7 +282,9 @@ export default function run() {
         }
     }
 
+    // --------------------------------------------------------
     // Insert static keys
+    // --------------------------------------------------------
     for (const ref of refs) {
         if (ref.dynamic) continue
         changed = updateKey(ref.key, ref.paramCount, strings) || changed
@@ -287,7 +321,6 @@ export default function run() {
             }
         }
 
-        // Warn
         for (const key of allExisting) {
             if (!used.has(key)) {
                 console.log(`${C.magenta}[UNUSED]${C.reset} ${key}`)

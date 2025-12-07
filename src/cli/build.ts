@@ -45,7 +45,7 @@ export default async function run(args: string[]) {
     // build → merge + strings
     // --------------------------------------------------
     if (cmd === 'build') {
-        console.log(`${C.cyan}Building...${C.reset}\n`)
+        console.log(`${C.cyan}Building...${C.reset}`)
 
         const mergeFn = await loadMerge()
         if (!mergeFn) return
@@ -63,12 +63,10 @@ export default async function run(args: string[]) {
 
         if (stringsChanged) {
             console.log(
-                `${C.green}__STRINGS.json updated successfully${C.reset}\n`
+                `${C.green}__STRINGS.json updated successfully${C.reset}`
             )
         } else {
-            console.log(
-                `${C.green}__STRINGS.json already up to date${C.reset}\n`
-            )
+            console.log(`${C.green}__STRINGS.json already up to date${C.reset}`)
         }
 
         console.log(`${C.cyan}Build complete.${C.reset}`)

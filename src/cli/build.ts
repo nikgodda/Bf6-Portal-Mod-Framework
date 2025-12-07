@@ -53,7 +53,7 @@ export default async function run(args: string[]) {
         await mergeFn()
 
         console.log(`${C.green}__SCRIPT.ts generated successfully${C.reset}`)
-        console.log('')
+        // console.log('')
 
         // run strings.js
         const stringsMod: any = await import('../scripts/strings.js')

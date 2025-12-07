@@ -69,7 +69,7 @@ export default async function run(args: string[]) {
             console.log(`${C.green}__STRINGS.json already up to date${C.reset}`)
         }
 
-        console.log(`${C.cyan}Build complete.${C.reset}`)
+        console.log(`${C.cyan}Build complete.${C.reset}\n`)
         return
     }
 

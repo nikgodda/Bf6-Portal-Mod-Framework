@@ -174,7 +174,21 @@ function extractKeyRefs(content) {
         if (!key) continue
 
         const params = m[3]
-        const paramCount = params ? params.split(',').length : 0
+        let paramCount = 0
+
+        // ---------- FIX APPLIED HERE ----------
+        if (params) {
+            let depth = 0
+            let parts = 0
+            for (let i = 0; i < params.length; i++) {
+                const ch = params[i]
+                if (ch === '(') depth++
+                else if (ch === ')') depth--
+                else if (ch === ',' && depth === 0) parts++
+            }
+            paramCount = parts + 1
+        }
+        // --------------------------------------
 
         refs.push({ key, paramCount, dynamic: false })
     }

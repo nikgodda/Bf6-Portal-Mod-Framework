@@ -45,7 +45,7 @@ export default async function run(args: string[]) {
     // build → merge + strings
     // --------------------------------------------------
     if (cmd === 'build') {
-        console.log(`${C.cyan}Building...${C.reset}`)
+        console.log(`${C.cyan}Building Script...${C.reset}`)
 
         const mergeFn = await loadMerge()
         if (!mergeFn) return
@@ -53,7 +53,9 @@ export default async function run(args: string[]) {
         await mergeFn()
 
         console.log(`${C.green}__SCRIPT.ts generated successfully${C.reset}`)
-        // console.log('')
+        console.log('')
+
+        console.log(`${C.cyan}Building Strings...${C.reset}`)
 
         // run strings.js
         const stringsMod: any = await import('../scripts/strings.js')
@@ -69,6 +71,7 @@ export default async function run(args: string[]) {
             console.log(`${C.green}__STRINGS.json already up to date${C.reset}`)
         }
 
+        console.log('')
         console.log(`${C.cyan}Build complete.${C.reset}\n`)
         return
     }

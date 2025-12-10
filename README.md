@@ -4,79 +4,82 @@ A development framework and CLI toolchain for creating Battlefield 6 Portal Mods
 
 It powers the official BF6 Portal Mod Template and provides:
 
-- bf6mod CLI
-- automatic TypeScript merge (creates __SCRIPT.ts)
-- automatic string extraction (creates __STRINGS.json)
-- annotation-based dynamic string expansion
-- live watch mode
-- SDK updater
+- bf6mod CLI  
+- automatic TypeScript merge (creates __SCRIPT.ts)  
+- automatic string extraction (creates __STRINGS.json)  
+- annotation-based dynamic string expansion  
+- watch mode  
+- SDK updater  
 - does not include SDK files (downloaded per project)
 
 ---
 
 # 🚀 Installation
 
+```bash
 npm install bf6-portal-mod-framework --save-dev
+```
 
 Upgrade to latest:
 
+```bash
 npm install bf6-portal-mod-framework@latest --save-dev
+```
 
 ---
 
 # 📦 CLI Commands
 
-bf6mod
+### Build (merge + strings)
 
-Used via npm scripts or directly.
-
----
-
-## 🔨 Build (merge + strings)
-
+```bash
 bf6mod build
+```
 
 Produces:
 
-__SCRIPT.ts  
+```
+__SCRIPT.ts
 __STRINGS.json
+```
 
-Notes:
+### Watch (merge only)
 
-- __STRINGS.json is generated only during build  
-- Watch mode does not trigger string extraction
-
----
-
-## 👁 Watch (merge only)
-
+```bash
 bf6mod watch
+```
 
-Regenerates __SCRIPT.ts whenever files change.
+Regenerates __SCRIPT.ts on changes.  
+Does **not** update __STRINGS.json.
 
-Does not update __STRINGS.json — run bf6mod build when editing annotations.
+### Update SDK
 
----
-
-## 🔄 Update SDK
-
+```bash
 bf6mod update-sdk
+```
 
-Downloads the latest Portal SDK typings into SDK/.
+Downloads the latest Portal SDK typings.
 
 ---
 
 # 🧱 Required Project Layout
 
-SDK/  
-  mod/  
+```
+SDK/
+  mod/
   modlib/
 
-src/  
-  main.ts  
+src/
+  main.ts
   ...
+```
 
-Output files are written to project root.
+Outputs go to project root:
+
+```
+__SCRIPT.ts
+__STRINGS.json
+```
 
 ---
 
@@ -84,28 +87,36 @@ Output files are written to project root.
 
 The merge tool:
 
-- scans src/ recursively  
+- scans all .ts under src/  
 - resolves import order  
-- strips import/export statements  
-- merges all files into __SCRIPT.ts  
+- strips import/export  
+- merges everything into a single output:
 
-Paste __SCRIPT.ts into the Portal Web Editor.
+```
+__SCRIPT.ts
+```
+
+Paste this file into the Portal Web Editor.
 
 ---
 
 # 💬 Strings System (Updated)
 
-The framework scans __SCRIPT.ts and generates __STRINGS.json.
+During build, the framework scans __SCRIPT.ts and generates:
 
-It extracts:
+```
+__STRINGS.json
+```
 
-- static keys  
-- message keys with parameters  
+Extracts:
+
+- static message keys  
+- static parameters  
 - mod.stringkeys.*  
-- dynamic template literal usages  
-- annotation-based dynamic values  
+- dynamic template literal calls (as references)  
+- annotation-based dynamic expansions  
 
-Only bf6mod build performs string extraction.
+Only `bf6mod build` performs string extraction.
 
 ---
 
@@ -113,54 +124,61 @@ Only bf6mod build performs string extraction.
 
 ### Basic
 
+```ts
 mod.Message("hello")
+```
 
-→ "hello": "hello"
+→ `"hello": "hello"`
 
-### With parameters
+### With Parameters
 
-mod.Message("debug.player", x, y)
+```ts
+mod.Message("debug.player", x, y, z)
+```
 
-→ "debug.player": "debug.player {} {}"
+→ `"debug.player": "debug.player {} {} {}"`
 
-### Using mod.stringkeys
+### Using stringkeys
 
+```ts
 mod.stringkeys.ui.menu.Start
+```
 
-→ "ui.menu.Start": "ui.menu.Start"
-
-Static keys always generate entries.
+→ `"ui.menu.Start": "ui.menu.Start"`
 
 ---
 
-# 🔥 Dynamic Strings (Important)
+# 🔥 Dynamic Strings (Correct Behavior)
 
-Dynamic message keys must use template literals, but:
+Dynamic template literal usage:
 
-### ✔ Dynamic Message() calls DO NOT generate keys  
-### ✔ Only @stringkeys annotations generate dynamic entries  
-### ✔ Dynamic calls only mark namespaces as "used" (to suppress warnings)
+```ts
+mod.Message(`ai.bots.${i}`)
+```
+
+**does NOT generate keys.**
+
+Only annotations generate dynamic entries.
+
+Dynamic calls only mark a namespace as “used”.
 
 Example:
 
-// @stringkeys ai.bots: 0..3  
+```ts
+// @stringkeys ai.bots: 0..3
 mod.Message(`ai.bots.${i}`)
+```
 
-Generated keys:
+Generated (from annotation):
 
-ai.bots.0  
-ai.bots.1  
-ai.bots.2  
+```
+ai.bots.0
+ai.bots.1
+ai.bots.2
 ai.bots.3
+```
 
-These come from the annotation **only**.  
-The dynamic call causes **no generation**.
-
-If annotation is missing:
-
-mod.Message(`ai.bots.${i}`)
-
-→ generates **nothing**.
+Without annotation → no dynamic keys.
 
 Supports multi-line template literals.
 
@@ -170,72 +188,81 @@ Supports multi-line template literals.
 
 Format:
 
+```ts
 // @stringkeys <namespace>: <values>
+```
 
 Examples:
 
-### Numeric range
-// @stringkeys ai.bots: 0..3
-
-### Alphabet range
-// @stringkeys rank: A..F
-
-### List
+```ts
 // @stringkeys ui.buttons: OK, Cancel, Retry
-
-### Mixed
+// @stringkeys ai.bots: 0..3
+// @stringkeys grade: A..F
 // @stringkeys ai.state: Idle, Roam, Fight, A..C, 10..12
+```
 
-Annotations ALWAYS generate the keys.
+Annotations ALWAYS generate dynamic values.
 
 ---
 
 # 🔍 Parameter Counting
 
-Nested expressions supported:
+Handles nested expressions:
 
+```ts
 mod.Message(
-    "debug.coords",
-    mod.X(pos),
-    mod.Y(pos),
-    mod.Z(pos)
+  "debug.loc",
+  mod.X(pos),
+  mod.Y(pos),
+  mod.Z(pos)
 )
+```
 
-→ "debug.coords": "debug.coords {} {} {}"
+Becomes:
+
+```
+debug.loc {} {} {}
+```
 
 ---
 
 # ⚙ Optional Warning Mode
 
-Add to package.json:
+Enable in package.json:
 
+```json
 {
   "bf6mod": {
     "warnUnusedStrings": true
   }
 }
+```
 
-Dynamic calls mark namespaces as used.
+Dynamic calls mark namespaces as “used”.
 
 ---
 
-# 🧩 Example
+# 🧩 Template Integration
 
-Code:
+Official BF6 Portal Mod Template:
 
-mod.Message("static.key", x)  
-mod.stringkeys.menu.start  
+https://github.com/nikgodda/bf6-portal-mod-template
 
-// @stringkeys ai.bots: 0..2  
-mod.Message(`ai.bots.${i}`)
+The template provides:
 
-Output:
+- ready project layout  
+- base `AGameMode` class  
+- starter `main.ts`  
+- SDK folder included  
+- npm scripts mapped directly to framework commands:
 
-static.key {}  
-menu.start  
-ai.bots.0  
-ai.bots.1  
-ai.bots.2
+```
+npm run build       → bf6mod build  
+npm run watch       → bf6mod watch  
+npm run update-sdk  → bf6mod update-sdk  
+```
+
+Use the template if you want a fully configured project already wired to this framework.
 
 ---
 

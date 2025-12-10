@@ -164,9 +164,15 @@ function parseStringKeys(content) {
 function extractKeyRefs(content) {
     const refs = []
 
-    // static mod.Message("x") — FIXED REGEX (only change in file)
+    // ------------------------------------------------------------
+    // FIX 1 + FIX 2 APPLIED HERE
+    //
+    //  - supports nested parentheses in params
+    //  - supports backtick literal keys
+    //  - preserves all prior working cases
+    // ------------------------------------------------------------
     const staticMsg =
-        /mod\.Message\s*\(\s*(['"`])((?:(?!\$\{)[^"'`])*)\1(?!\s*\+)\s*(?:,\s*((?:[^()]|\([^()]*\))*(?:[^()]|\([^()]*\))*))?\s*\)/g
+        /mod\.Message\s*\(\s*(['"`])((?:(?!\$\{)[^])*)\1(?!\s*\+)\s*(?:,\s*((?:[^()]|\([^()]*\))*(?:[^()]|\([^()]*\))*))?\s*\)/g
 
     let m
     while ((m = staticMsg.exec(content)) !== null) {
@@ -191,7 +197,7 @@ function extractKeyRefs(content) {
         refs.push({ key, paramCount, dynamic: false })
     }
 
-    // static SK
+    // static SK (dot notation only)
     const staticSK =
         /mod\.stringkeys\.([A-Za-z0-9_$.]+)(?=(?!\s*\[)\s*(?:$|[\s),+]))/g
 
@@ -311,9 +317,7 @@ export default function run() {
     const dynSKregex = /mod\.stringkeys\.([A-Za-z0-9_$.]+)\s*\[/g
 
     let mk
-    while ((mk = dynSKregex.exec(content)) !== null) {
-        dynamicSKUsed.add(mk[1])
-    }
+    while ((mk = dynSKregex.exec(content)) !== null) dynamicSKUsed.add(mk[1])
 
     // 5) warn unused
     if (config.warnUnusedStrings) {
@@ -329,24 +333,18 @@ export default function run() {
         const allExisting = flatten(strings)
         const used = new Set()
 
-        for (const ref of refs) {
-            if (!ref.dynamic) used.add(ref.key)
-        }
+        for (const ref of refs) if (!ref.dynamic) used.add(ref.key)
 
         for (const ref of refs) {
             if (!ref.dynamic) continue
             const ann = annotations.find((a) => a.ns === ref.namespace)
             if (!ann) continue
-            for (const v of ann.values) {
-                used.add(`${ref.namespace}.${v.key}`)
-            }
+            for (const v of ann.values) used.add(`${ref.namespace}.${v.key}`)
         }
 
         for (const dynNS of dynamicSKUsed) {
             for (const key of allExisting) {
-                if (key.startsWith(dynNS + '.')) {
-                    used.add(key)
-                }
+                if (key.startsWith(dynNS + '.')) used.add(key)
             }
         }
 

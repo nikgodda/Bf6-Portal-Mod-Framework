@@ -172,7 +172,7 @@ function extractKeyRefs(content) {
     //  - preserves all prior working cases
     // ------------------------------------------------------------
     const staticMsg =
-        /mod\.Message\s*\(\s*(['"`])((?:(?!\$\{)[^])*)\1(?!\s*\+)\s*(?:,\s*((?:[^()]|\([^()]*\))*(?:[^()]|\([^()]*\))*))?\s*\)/g
+        /mod\.Message\s*\(\s*(['"`])([\s\S]*?)(?<!\$\{)\1\s*(?:,\s*([\s\S]*?))?\)/g
 
     let m
     while ((m = staticMsg.exec(content)) !== null) {

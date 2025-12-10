@@ -4,12 +4,12 @@ A development framework and CLI toolchain for creating Battlefield 6 Portal Mods
 
 It powers the official BF6 Portal Mod Template and provides:
 
-- bf6mod CLI  
-- automatic TypeScript merge (creates __SCRIPT.ts)  
-- automatic string extraction (creates __STRINGS.json)  
-- annotation-based dynamic string expansion  
-- live watch mode  
-- SDK updater  
+- bf6mod CLI
+- automatic TypeScript merge (creates __SCRIPT.ts)
+- automatic string extraction (creates __STRINGS.json)
+- annotation-based dynamic string expansion
+- live watch mode
+- SDK updater
 - does not include SDK files (downloaded per project)
 
 ---
@@ -25,8 +25,6 @@ npm install bf6-portal-mod-framework@latest --save-dev
 ---
 
 # 📦 CLI Commands
-
-The framework exposes:
 
 bf6mod
 
@@ -45,7 +43,7 @@ __STRINGS.json
 
 Notes:
 
-- __STRINGS.json is generated only during build
+- __STRINGS.json is generated only during build  
 - Watch mode does not trigger string extraction
 
 ---
@@ -54,12 +52,9 @@ Notes:
 
 bf6mod watch
 
-Watches src/ and regenerates:
+Regenerates __SCRIPT.ts whenever files change.
 
-__SCRIPT.ts
-
-Does not update __STRINGS.json.  
-Run bf6mod build when editing string annotations.
+Does not update __STRINGS.json — run bf6mod build when editing annotations.
 
 ---
 
@@ -67,10 +62,7 @@ Run bf6mod build when editing string annotations.
 
 bf6mod update-sdk
 
-Downloads latest BF6 Portal SDK typings:
-
-SDK/mod/  
-SDK/modlib/
+Downloads the latest Portal SDK typings into SDK/.
 
 ---
 
@@ -84,40 +76,36 @@ src/
   main.ts  
   ...
 
-Outputs (__SCRIPT.ts, __STRINGS.json) are written to project root.
+Output files are written to project root.
 
 ---
 
 # 🛠 Merge Behavior
 
-The merge tool (src/scripts/merge.js):
+The merge tool:
 
-- scans all .ts under src/
-- resolves import order
-- strips import / export
-- flattens code
-- writes __SCRIPT.ts
+- scans src/ recursively  
+- resolves import order  
+- strips import/export statements  
+- merges all files into __SCRIPT.ts  
 
-This is the file you paste into the Portal Web Editor.
+Paste __SCRIPT.ts into the Portal Web Editor.
 
 ---
 
-# 💬 Strings System  (UPDATED, ACCURATE)
+# 💬 Strings System (Updated)
 
-The Strings System scans your merged __SCRIPT.ts and auto-generates:
-
-__STRINGS.json
+The framework scans __SCRIPT.ts and generates __STRINGS.json.
 
 It extracts:
 
-- static message keys
-- message keys with parameters
-- mod.stringkeys.* usages
-- dynamic template literals
-- annotation-driven dynamic expansion
+- static keys  
+- message keys with parameters  
+- mod.stringkeys.*  
+- dynamic template literal usages  
+- annotation-based dynamic values  
 
-Only the bf6mod build command generates strings.  
-Watch mode does not run string extraction.
+Only bf6mod build performs string extraction.
 
 ---
 
@@ -127,49 +115,31 @@ Watch mode does not run string extraction.
 
 mod.Message("hello")
 
-Output:
+→ "hello": "hello"
 
-{ "hello": "hello" }
+### With parameters
 
----
+mod.Message("debug.player", x, y)
 
-### With Parameters
-
-Parameters may be any valid expression:
-
-mod.Message("debug.player", x, y, z)
-
-Output:
-
-debug.player {} {} {}
-
-The system counts top-level commas correctly, even with nested parentheses.
-
----
+→ "debug.player": "debug.player {} {}"
 
 ### Using mod.stringkeys
 
 mod.stringkeys.ui.menu.Start
 
-Output:
+→ "ui.menu.Start": "ui.menu.Start"
 
-ui.menu.Start
-
-This always generates a static string key.
+Static keys always generate entries.
 
 ---
 
-# 🔥 Dynamic Strings (important behavior)
+# 🔥 Dynamic Strings (Important)
 
-Dynamic message keys must use template literals:
+Dynamic message keys must use template literals, but:
 
-mod.Message(`ai.bots.${i}`)
-
-However:
-
-### ✔ Dynamic calls DO NOT generate any keys  
+### ✔ Dynamic Message() calls DO NOT generate keys  
 ### ✔ Only @stringkeys annotations generate dynamic entries  
-### ✔ Dynamic calls simply mark the namespace as “used” for warning mode
+### ✔ Dynamic calls only mark namespaces as "used" (to suppress warnings)
 
 Example:
 
@@ -183,17 +153,20 @@ ai.bots.1
 ai.bots.2  
 ai.bots.3
 
-These come **only from the annotation**, not from the dynamic call.
+These come from the annotation **only**.  
+The dynamic call causes **no generation**.
 
-Dynamic calls without annotations are completely ignored.
+If annotation is missing:
 
-Supports both single-line and multi-line template literals.
+mod.Message(`ai.bots.${i}`)
+
+→ generates **nothing**.
+
+Supports multi-line template literals.
 
 ---
 
 # 📝 @stringkeys Annotation
-
-Declares the allowed values for a dynamic namespace.
 
 Format:
 
@@ -201,90 +174,40 @@ Format:
 
 Examples:
 
-### Numeric Range
-
+### Numeric range
 // @stringkeys ai.bots: 0..3
 
----
-
-### Alphabet Range
-
-// @stringkeys grade: A..F
-
----
+### Alphabet range
+// @stringkeys rank: A..F
 
 ### List
-
 // @stringkeys ui.buttons: OK, Cancel, Retry
 
----
-
 ### Mixed
-
 // @stringkeys ai.state: Idle, Roam, Fight, A..C, 10..12
 
-Annotations ALWAYS generate their keys during build.
+Annotations ALWAYS generate the keys.
 
 ---
 
-# 📌 Dynamic Key Rules
+# 🔍 Parameter Counting
 
-Dynamic keys must be shaped like:
-
-<namespace>.<static>... .${variable}
-
-Valid:
-
-mod.Message(`ai.bots.${i}`)  
-mod.Message(`ui.menu.buttons.${id}`)
-
-Invalid (ignored):
-
-mod.Message(`ai.${a}.${b}`)  
-mod.Message(`bots.${p}.${x}`)  
-mod.Message(`bots.` + p)  
-mod.Message(`${a}.${b}`)
-
-Only one trailing dynamic segment is supported.
-
----
-
-# 🧪 Static Keys Are Always Added
-
-mod.Message("scoreboard.title")
-
-Always included.
-
----
-
-# 🔍 Parameter Counting (latest extractor)
-
-Correctly handles:
-
-- nested parentheses  
-- multi-line parameters  
-- function calls  
-- ternaries  
-- chained calls  
-
-Example:
+Nested expressions supported:
 
 mod.Message(
-    "debug.player",
-    mod.XComponent(pos),
-    mod.YComponent(pos),
-    mod.ZComponent(pos)
+    "debug.coords",
+    mod.X(pos),
+    mod.Y(pos),
+    mod.Z(pos)
 )
 
-Output:
-
-debug.player {} {} {}
+→ "debug.coords": "debug.coords {} {} {}"
 
 ---
 
 # ⚙ Optional Warning Mode
 
-Enable detection of unused keys:
+Add to package.json:
 
 {
   "bf6mod": {
@@ -292,7 +215,7 @@ Enable detection of unused keys:
   }
 }
 
-Dynamic calls mark namespaces as used if they appear.
+Dynamic calls mark namespaces as used.
 
 ---
 
@@ -301,7 +224,7 @@ Dynamic calls mark namespaces as used if they appear.
 Code:
 
 mod.Message("static.key", x)  
-mod.stringkeys.menu.start
+mod.stringkeys.menu.start  
 
 // @stringkeys ai.bots: 0..2  
 mod.Message(`ai.bots.${i}`)
@@ -313,24 +236,6 @@ menu.start
 ai.bots.0  
 ai.bots.1  
 ai.bots.2
-
----
-
-# 🧩 Template Integration
-
-Official template:  
-https://github.com/nikgodda/bf6-portal-mod-template
-
-Provides:
-
-- ready src/ layout
-- game mode base class
-- SDK folder
-- npm scripts mapped to the framework:
-
-npm run build       → bf6mod build  
-npm run watch       → bf6mod watch  
-npm run update-sdk  → bf6mod update-sdk
 
 ---
 

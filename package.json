@@ -1,6 +1,6 @@
 {
       "name": "bf6-portal-mod-framework",
-      "version": "1.1.15",
+      "version": "1.1.16",
       "description": "Framework and build system for Battlefield 6 Portal mods",
       "main": "dist/index.js",
       "types": "dist/index.d.ts",

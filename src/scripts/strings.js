@@ -164,15 +164,9 @@ function parseStringKeys(content) {
 function extractKeyRefs(content) {
     const refs = []
 
-    // ------------------------------------------------------------
-    // FIX 1 + FIX 2 APPLIED HERE
-    //
-    //  - supports nested parentheses in params
-    //  - supports backtick literal keys
-    //  - preserves all prior working cases
-    // ------------------------------------------------------------
+    // static mod.Message("x") no ${} and no concat
     const staticMsg =
-        /mod\.Message\s*\(\s*(['"`])([\s\S]*?)(?<!\$\{)\1\s*(?:,\s*([\s\S]*?))?\)/g
+        /mod\.Message\s*\(\s*(['"`])((?:(?!\$\{)[^"'`])*)\1(?!\s*\+)\s*(?:,([^)]*))?\)/g
 
     let m
     while ((m = staticMsg.exec(content)) !== null) {
@@ -180,24 +174,12 @@ function extractKeyRefs(content) {
         if (!key) continue
 
         const params = m[3]
-        let paramCount = 0
-
-        if (params) {
-            let depth = 0
-            let parts = 0
-            for (let i = 0; i < params.length; i++) {
-                const ch = params[i]
-                if (ch === '(') depth++
-                else if (ch === ')') depth--
-                else if (ch === ',' && depth === 0) parts++
-            }
-            paramCount = parts + 1
-        }
+        const paramCount = params ? params.split(',').length : 0
 
         refs.push({ key, paramCount, dynamic: false })
     }
 
-    // static SK (dot notation only)
+    // static SK (dot notation only, not bracketed)
     const staticSK =
         /mod\.stringkeys\.([A-Za-z0-9_$.]+)(?=(?!\s*\[)\s*(?:$|[\s),+]))/g
 
@@ -220,7 +202,7 @@ function extractKeyRefs(content) {
 }
 
 // ------------------------------------------------------------
-// UPDATE / INSERT KEY
+// UPDATE / INSERT KEY (annotation placeholders are authoritative)
 // ------------------------------------------------------------
 function updateKey(fullKey, paramCount, strings) {
     const parts = fullKey.split('.')
@@ -244,8 +226,12 @@ function updateKey(fullKey, paramCount, strings) {
 
     const existingPH = countPlaceholders(value)
 
-    if (annParam !== undefined) return false
+    // If this key is defined by annotation, do not override its placeholder count
+    if (annParam !== undefined) {
+        return false
+    }
 
+    // Non-annotation key: allow bumping placeholder count up
     if (existingPH < effectiveParamCount) {
         parent[leaf] =
             value +
@@ -277,6 +263,7 @@ export default function run() {
     const refs = extractKeyRefs(content)
     const config = loadConfig()
 
+    // rebuild annotation param map for this run
     annotationParamMap = new Map()
     for (const ann of annotations) {
         for (const v of ann.values) {
@@ -287,7 +274,7 @@ export default function run() {
 
     let changed = false
 
-    // 1) annotation keys
+    // 1) Apply annotations (authoritative placeholders)
     for (const ann of annotations) {
         for (const v of ann.values) {
             const fullKey = `${ann.ns}.${v.key}`
@@ -295,37 +282,44 @@ export default function run() {
         }
     }
 
-    // 2) expand dynamic message namespaces
+    // 2) Expand dynamic mod.Message(`ns.${x}`) using annotations
     for (const ref of refs) {
         if (!ref.dynamic) continue
+
         const ann = annotations.find((a) => a.ns === ref.namespace)
         if (!ann) continue
+
         for (const v of ann.values) {
             const fullKey = `${ref.namespace}.${v.key}`
             changed = updateKey(fullKey, ref.paramCount, strings) || changed
         }
     }
 
-    // 3) static refs
+    // 3) Insert static keys (mod.Message, mod.stringkeys)
     for (const ref of refs) {
         if (ref.dynamic) continue
         changed = updateKey(ref.key, ref.paramCount, strings) || changed
     }
 
-    // 4) detect dynamic SK namespaces
+    // 4) Detect dynamic SK namespaces (for UNUSED pass only)
     const dynamicSKUsed = new Set()
     const dynSKregex = /mod\.stringkeys\.([A-Za-z0-9_$.]+)\s*\[/g
 
     let mk
-    while ((mk = dynSKregex.exec(content)) !== null) dynamicSKUsed.add(mk[1])
+    while ((mk = dynSKregex.exec(content)) !== null) {
+        dynamicSKUsed.add(mk[1])
+    }
 
-    // 5) warn unused
+    // 5) Warn about unused strings
     if (config.warnUnusedStrings) {
         function flatten(obj, prefix = '', out = []) {
             for (const k in obj) {
                 const full = prefix ? `${prefix}.${k}` : k
-                if (typeof obj[k] === 'object') flatten(obj[k], full, out)
-                else out.push(full)
+                if (typeof obj[k] === 'object') {
+                    flatten(obj[k], full, out)
+                } else {
+                    out.push(full)
+                }
             }
             return out
         }
@@ -333,18 +327,27 @@ export default function run() {
         const allExisting = flatten(strings)
         const used = new Set()
 
-        for (const ref of refs) if (!ref.dynamic) used.add(ref.key)
+        // static refs
+        for (const ref of refs) {
+            if (!ref.dynamic) used.add(ref.key)
+        }
 
+        // dynamic message expansions
         for (const ref of refs) {
             if (!ref.dynamic) continue
             const ann = annotations.find((a) => a.ns === ref.namespace)
             if (!ann) continue
-            for (const v of ann.values) used.add(`${ref.namespace}.${v.key}`)
+            for (const v of ann.values) {
+                used.add(`${ref.namespace}.${v.key}`)
+            }
         }
 
+        // SK dynamic namespaces: mark all keys under ns as used
         for (const dynNS of dynamicSKUsed) {
             for (const key of allExisting) {
-                if (key.startsWith(dynNS + '.')) used.add(key)
+                if (key.startsWith(dynNS + '.')) {
+                    used.add(key)
+                }
             }
         }
 
@@ -355,7 +358,7 @@ export default function run() {
         }
     }
 
-    // 6) write output
+    // 6) Write output
     if (changed) {
         fs.writeFileSync(
             OUTFILE,

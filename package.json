@@ -7,6 +7,11 @@
       "bin": {
             "bf6mod": "bin/bf6mod.js"
       },
+      "files": [
+            "dist",
+            "bin",
+            "README.md"
+      ],
       "scripts": {
             "build": "tsc",
             "watch": "tsc -w",

@@ -49,23 +49,13 @@ __STRINGS.json
 bf6mod watch
 ```
 
-<<<<<<< HEAD
 Only regenerates __SCRIPT.ts.
-=======
-Regenerates __SCRIPT.ts on changes.  
-Does **not** update __STRINGS.json.
->>>>>>> d50576f079c2b7f68f03a53fed30f6c7532593ec
 
 ### Update SDK
 
 ```bash
 bf6mod update-sdk
 ```
-<<<<<<< HEAD
-=======
-
-Downloads the latest Portal SDK typings.
->>>>>>> d50576f079c2b7f68f03a53fed30f6c7532593ec
 
 ---
 
@@ -81,11 +71,7 @@ src/
   ...
 ```
 
-<<<<<<< HEAD
 Output:
-=======
-Outputs go to project root:
->>>>>>> d50576f079c2b7f68f03a53fed30f6c7532593ec
 
 ```
 __SCRIPT.ts
@@ -96,42 +82,22 @@ __STRINGS.json
 
 # 🛠 Merge Behavior
 
-<<<<<<< HEAD
 - merges all TypeScript under src  
 - resolves import order  
 - strips imports/exports  
 - writes a single game script  
 
 Paste __SCRIPT.ts into Portal Web Editor.
-=======
-The merge tool:
-
-- scans all .ts under src/  
-- resolves import order  
-- strips import/export  
-- merges everything into a single output:
-
-```
-__SCRIPT.ts
-```
-
-Paste this file into the Portal Web Editor.
->>>>>>> d50576f079c2b7f68f03a53fed30f6c7532593ec
 
 ---
 
 # 💬 Strings System (Updated)
 
-<<<<<<< HEAD
 Generates:
-=======
-During build, the framework scans __SCRIPT.ts and generates:
->>>>>>> d50576f079c2b7f68f03a53fed30f6c7532593ec
 
 ```
 __STRINGS.json
 ```
-<<<<<<< HEAD
 
 Supports:
 
@@ -142,18 +108,6 @@ Supports:
 - annotation-controlled dynamic values  
 
 Dynamic template literals **never** generate keys — only annotations do.
-=======
-
-Extracts:
-
-- static message keys  
-- static parameters  
-- mod.stringkeys.*  
-- dynamic template literal calls (as references)  
-- annotation-based dynamic expansions  
-
-Only `bf6mod build` performs string extraction.
->>>>>>> d50576f079c2b7f68f03a53fed30f6c7532593ec
 
 ---
 
@@ -165,7 +119,6 @@ Only `bf6mod build` performs string extraction.
 mod.Message("hello")
 ```
 
-<<<<<<< HEAD
 Produces:
 
 ```json
@@ -183,41 +136,6 @@ mod.Message("debug.player", x, y, z)
 ```
 
 Produces:
-=======
-→ `"hello": "hello"`
-
-### With Parameters
-
-```ts
-mod.Message("debug.player", x, y, z)
-```
-
-→ `"debug.player": "debug.player {} {} {}"`
-
-### Using stringkeys
-
-```ts
-mod.stringkeys.ui.menu.Start
-```
-
-→ `"ui.menu.Start": "ui.menu.Start"`
-
----
-
-# 🔥 Dynamic Strings (Correct Behavior)
-
-Dynamic template literal usage:
-
-```ts
-mod.Message(`ai.bots.${i}`)
-```
-
-**does NOT generate keys.**
-
-Only annotations generate dynamic entries.
-
-Dynamic calls only mark a namespace as “used”.
->>>>>>> d50576f079c2b7f68f03a53fed30f6c7532593ec
 
 ```json
 {
@@ -227,7 +145,6 @@ Dynamic calls only mark a namespace as “used”.
 }
 ```
 
-<<<<<<< HEAD
 ---
 
 ### Using stringkeys
@@ -270,23 +187,6 @@ mod.Message(`ai.bots.${i}`)
 ```
 
 Produces:
-=======
-```ts
-// @stringkeys ai.bots: 0..3
-mod.Message(`ai.bots.${i}`)
-```
-
-Generated (from annotation):
-
-```
-ai.bots.0
-ai.bots.1
-ai.bots.2
-ai.bots.3
-```
-
-Without annotation → no dynamic keys.
->>>>>>> d50576f079c2b7f68f03a53fed30f6c7532593ec
 
 ```json
 {
@@ -315,7 +215,6 @@ Format:
 
 Supports:
 
-<<<<<<< HEAD
 - lists  
 - numeric ranges  
 - alphabet ranges  
@@ -342,26 +241,11 @@ Produces:
   }
 }
 ```
-=======
-```ts
-// @stringkeys ui.buttons: OK, Cancel, Retry
-// @stringkeys ai.bots: 0..3
-// @stringkeys grade: A..F
-// @stringkeys ai.state: Idle, Roam, Fight, A..C, 10..12
-```
-
-Annotations ALWAYS generate dynamic values.
->>>>>>> d50576f079c2b7f68f03a53fed30f6c7532593ec
 
 ---
 
 # 🔍 Parameter Counting
 
-<<<<<<< HEAD
-=======
-Handles nested expressions:
-
->>>>>>> d50576f079c2b7f68f03a53fed30f6c7532593ec
 ```ts
 mod.Message(
   "debug.loc",
@@ -371,7 +255,6 @@ mod.Message(
 )
 ```
 
-<<<<<<< HEAD
 Produces:
 
 ```json
@@ -380,23 +263,12 @@ Produces:
     "loc": "debug.loc {} {} {}"
   }
 }
-=======
-Becomes:
-
-```
-debug.loc {} {} {}
->>>>>>> d50576f079c2b7f68f03a53fed30f6c7532593ec
 ```
 
 ---
 
 # ⚙ Optional Warning Mode
 
-<<<<<<< HEAD
-=======
-Enable in package.json:
-
->>>>>>> d50576f079c2b7f68f03a53fed30f6c7532593ec
 ```json
 {
   "bf6mod": {
@@ -404,17 +276,11 @@ Enable in package.json:
   }
 }
 ```
-<<<<<<< HEAD
-=======
-
-Dynamic calls mark namespaces as “used”.
->>>>>>> d50576f079c2b7f68f03a53fed30f6c7532593ec
 
 ---
 
 # 🧩 Template Integration
 
-<<<<<<< HEAD
 Official Template:
 
 https://github.com/nikgodda/bf6-portal-mod-template
@@ -426,30 +292,12 @@ Provides:
 - entry main.ts  
 - SDK folder included  
 - npm scripts mapped to framework:
-=======
-Official BF6 Portal Mod Template:
-
-https://github.com/nikgodda/bf6-portal-mod-template
-
-The template provides:
-
-- ready project layout  
-- base `AGameMode` class  
-- starter `main.ts`  
-- SDK folder included  
-- npm scripts mapped directly to framework commands:
->>>>>>> d50576f079c2b7f68f03a53fed30f6c7532593ec
 
 ```
 npm run build       → bf6mod build  
 npm run watch       → bf6mod watch  
 npm run update-sdk  → bf6mod update-sdk  
 ```
-<<<<<<< HEAD
-=======
-
-Use the template if you want a fully configured project already wired to this framework.
->>>>>>> d50576f079c2b7f68f03a53fed30f6c7532593ec
 
 ---
 

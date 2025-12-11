@@ -34,8 +34,9 @@ function resolveFile(state, filePath) {
 
     const code = fs.readFileSync(filePath, 'utf8')
 
+    // FIXED: Ignore commented imports
     const importRegex =
-        /import\s+(?:[\s\S]*?)?from\s+["'](\.\/.*?|\.{2}\/.*?|src\/.*?)["'];?/g
+        /^(?!\s*\/\/)\s*import\s+(?:[\s\S]*?)?from\s+["'](\.\/.*?|\.{2}\/.*?|src\/.*?)["'];?/gm
 
     let match
     while ((match = importRegex.exec(code))) {
@@ -129,7 +130,6 @@ function enforceIdentifierUniqueness(files) {
 // ----------------------------
 
 export default function merge(entryFileInput) {
-    // NEW: fresh state every run
     const state = createState()
 
     const entryFile =
@@ -147,8 +147,13 @@ export default function merge(entryFileInput) {
     for (const file of state.ordered) {
         let code = fs.readFileSync(file, 'utf8')
 
-        code = code.replace(/import[\s\S]*?from\s+['"][^'"]+['"]\s*;?/g, '')
+        // FIXED: Remove only REAL imports, never commented ones
+        code = code.replace(
+            /^(?!\s*\/\/)\s*import\s+.*?from\s+['"][^'"]+['"]\s*;?/gm,
+            ''
+        )
 
+        // export removals
         code = code
             .replace(/^\s*export\s*{[^}]+};?\s*$/gm, '')
             .replace(/^\s*export\s+\*.*$/gm, '')

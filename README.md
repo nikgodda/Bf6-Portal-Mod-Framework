@@ -279,28 +279,6 @@ Produces:
 
 ---
 
-# 🧩 Template Integration
-
-Official Template:
-
-https://github.com/nikgodda/bf6-portal-mod-template
-
-Provides:
-
-- complete project structure  
-- base AGameMode  
-- entry main.ts  
-- SDK folder included  
-- npm scripts mapped to framework:
-
-```
-npm run build       → bf6mod build  
-npm run watch       → bf6mod watch  
-npm run update-sdk  → bf6mod update-sdk  
-```
-
----
-
 # 📜 License
 
 MIT

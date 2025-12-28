@@ -279,6 +279,20 @@ Produces:
 
 ---
 
+# 🧩 Template Integration
+
+Official Template:
+
+https://github.com/nikgodda/bf6-portal-scripting
+
+```
+npm run build       → bf6mod build  
+npm run watch       → bf6mod watch  
+npm run update-sdk  → bf6mod update-sdk  
+```
+
+---
+
 # 📜 License
 
 MIT
